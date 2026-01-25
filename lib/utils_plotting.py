@@ -489,13 +489,12 @@ def get_mae(df, tile, siteid, results, method):
     return results 
 
 
-def plot_qual(results_w_regions, methods = ["prithvi_pretrained_1.0_test", "Transformer-LSP_test"], methods_plot_names = ["Prithvi", "1D Shallow \n Transformer"]): 
+def plot_qual(results_w_regions, methods = ["prithvi_pretrained_1.0_test", "Transformer-LSP_test"], methods_plot_names = ["Prithvi", "1D Shallow \n Transformer"], random_seed=120): 
     # ==== CONFIG ====
     title_fontsize = 18
     label_fontsize = 18
     band_fontsize = 18
     model_fontsize = 20
-    random_seed = 120
     # ==== LOAD DATA ====
     geo_data = gpd.read_file(path_config.get_data_geojson())
     geo_data["HLStile"] = "T" + geo_data["name"]
@@ -511,7 +510,7 @@ def plot_qual(results_w_regions, methods = ["prithvi_pretrained_1.0_test", "Tran
 
     # ==== HELPER ====
     def reshape_doy(df, hlstile, siteid, band):
-        subset = df[(df["HLStile"] == hlstile) & (df["SiteID"] == siteid)]
+        subset = df[(df["HLStile"] == hlstile) & (df["SiteID"] == siteid) & (df["years"] == 2019)]
         image = np.full((33, 33), np.nan)
         for _, row in subset.iterrows():
             r = int(row["row"] // 10)
@@ -520,7 +519,7 @@ def plot_qual(results_w_regions, methods = ["prithvi_pretrained_1.0_test", "Tran
         return image
 
     def reshape_doy_truth(df, hlstile, siteid, band):
-        subset = df[(df["HLStile"] == hlstile) & (df["SiteID"] == siteid)]
+        subset = df[(df["HLStile"] == hlstile) & (df["SiteID"] == siteid) & (df["years"] == 2019)]
         image = np.full((33, 33), np.nan)
         for _, row in subset.iterrows():
             r = int(row["row"] // 10)

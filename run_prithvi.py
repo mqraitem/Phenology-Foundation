@@ -165,50 +165,50 @@ records_dir = "records"
 
 
 
-# # ###############################################################
-# # # * Shallow Transformer DATA 
-# # ###############################################################
-# for learning_rate in [0.00001]:
-#     for batch_size in [264]:
-#         for data_percentage in [0.2, 0.4, 0.6, 0.8]:
+# ###############################################################
+# # * Shallow Transformer DATA 
+# ###############################################################
+for learning_rate in [0.00001]:
+    for batch_size in [264]:
+        for data_percentage in [0.05]:
                 
-#             group_name = f"shallow_transformer_pixels"
+            group_name = f"shallow_transformer_pixels"
 
-#             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}"
+            name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}"
             
-#             if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
-#                 file_content = open(f"{records_dir}/{name}_{data_percentage}", "r").readlines()
-#                 last_line = file_content[-1]
-#                 if "wandb: Find logs" in last_line: 
-#                     continue
+            if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
+                file_content = open(f"{records_dir}/{name}_{data_percentage}", "r").readlines()
+                last_line = file_content[-1]
+                if "wandb: Find logs" in last_line: 
+                    continue
 
-#                 # if "Disk quota exceeded" not in last_line:
-#                 #     continue
-#                 print("haha: ", name)
+                # if "Disk quota exceeded" not in last_line:
+                #     continue
+                print("haha: ", name)
 
-#             command = f"qsub -v args='--wandb_name {name}   --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name}_{data_percentage} run_scripts/train_lsp_pixels.sh"
-#             os.system(command)
-# # # ###############################################################
-
-
+            command = f"qsub -v args='--wandb_name {name}   --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name}_{data_percentage} run_scripts/train_lsp_pixels.sh"
+            os.system(command)
 # # ###############################################################
-# # # * Prithvi Pretrained DATA
-# # ###############################################################
-# load_checkpoint = True
-# for freeze in [False]:
-#     for batch_size in [2]:
-#         for data_percentage in [0.2, 0.4, 0.6, 0.8]:
-#             for use_config_normalization in [False]:
-#                 group_name = "prithvi_pretrained"
-#                 for learning_rate in [0.00001]:
+
+
+# ###############################################################
+# # * Prithvi Pretrained DATA
+# ###############################################################
+load_checkpoint = True
+for freeze in [False]:
+    for batch_size in [2]:
+        for data_percentage in [0.05]:
+            for use_config_normalization in [False]:
+                group_name = "prithvi_pretrained"
+                for learning_rate in [0.00001]:
                     
-#                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}"
-#                     if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
-#                         file_content = open(f"{records_dir}/{name}_{data_percentage}", "r").readlines()
-#                         last_line = file_content[-1]
-#                         if "wandb: Find logs" in last_line: 
-#                             continue
+                    name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}"
+                    if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
+                        file_content = open(f"{records_dir}/{name}_{data_percentage}", "r").readlines()
+                        last_line = file_content[-1]
+                        if "wandb: Find logs" in last_line: 
+                            continue
 
-#                     command = f"qsub -v args='  --wandb_name {name}   --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate} --freeze {freeze}'  -o {records_dir}/{name}_{data_percentage} run_scripts/train_prithvi.sh"
-#                     os.system(command)
-# # # ###############################################################
+                    command = f"qsub -v args='  --wandb_name {name}   --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate} --freeze {freeze}'  -o {records_dir}/{name}_{data_percentage} run_scripts/train_prithvi.sh"
+                    os.system(command)
+# # ###############################################################
