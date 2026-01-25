@@ -1,0 +1,17 @@
+Model Name,Best Param
+prithvi_pretrained_0.6,prithvi_pretrained_lr-1e-05_batch_size-2_confignorm-False.pth
+prithvi_random_1.0,prithvi_random_lr-1e-06_batch_size-2.pth
+shallow_transformer_pixels_0.8,shallow_transformer_pixels_lr-1e-05_batch_size-264.pth
+prithvi_lora_1.0,prithvi_lora_lr-1e-05_batch_size-2_r-8_alpha-8.pth
+prithvi_pretrained_0.4,prithvi_pretrained_lr-1e-05_batch_size-2_confignorm-False.pth
+shallow_transformer_pixels_0.2,shallow_transformer_pixels_lr-1e-05_batch_size-264.pth
+shallow_transformer_pixels_0.6,shallow_transformer_pixels_lr-1e-05_batch_size-264.pth
+prithvi_pretrained_0.2,prithvi_pretrained_lr-1e-05_batch_size-2_confignorm-False.pth
+shallow_transformer_pixels_1.0,shallow_transformer_pixels_lr-1e-05_batch_size-264.pth
+shallow_transformer_patch4_1.0,shallow_transformer_patch4_lr-0.0001_batch_size-66.pth
+prithvi_pretrained_1.0,prithvi_pretrained_lr-1e-05_batch_size-2_confignorm-False.pth
+shallow_transformer_pixels_0.4,shallow_transformer_pixels_lr-1e-05_batch_size-264.pth
+prithvi_pretrained_0.8,prithvi_pretrained_lr-1e-05_batch_size-2_confignorm-False.pth
+shallow_transformer_patch8_1.0,shallow_transformer_patch8_lr-0.0001_batch_size-33.pth
+shallow_transformer_patch2_1.0,shallow_transformer_patch2_lr-1e-05_batch_size-256.pth
+shallow_transformer_patch16_1.0,shallow_transformer_patch16_lr-0.0001_batch_size-32.pth

@@ -1,0 +1,286 @@
+import rasterio
+import os
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+import geopandas as gpd
+import pandas as pd
+import path_config
+from lib.utils import compute_or_load_means_stds, day_of_year_to_decimal_month
+
+def load_raster(path,crop=None):
+
+	if os.path.exists(path):
+		with rasterio.open(path) as src:
+			img = src.read()
+			if crop:
+				img = img[:, -crop[0]:, -crop[1]:]
+
+	else:
+		img = np.zeros((6, 330, 330))
+
+	return img
+
+def load_raster_input(path, target_size=336):
+
+	if os.path.exists(path):
+
+		with rasterio.open(path) as src:
+			img = src.read()  # shape: (C, H, W)
+
+
+		_, h, w = img.shape
+		pad_h = (target_size - h) if h < target_size else 0
+		pad_w = (target_size - w) if w < target_size else 0
+
+		# Pad on the bottom and right only
+		padded_img = np.pad(
+			img,
+			pad_width=((0, 0), (0, pad_h), (0, pad_w)),
+			mode='constant',
+			constant_values=0  # or np.nan or other fill value
+		)
+
+		# Ensure consistent dtype
+		padded_img = padded_img.astype(np.float32)
+
+	else:
+		padded_img = np.zeros((6, target_size, target_size)).astype(np.float32)
+
+	return padded_img
+
+def load_raster_output(path):
+		with rasterio.open(path) as src:
+			img = src.read()
+
+		return img
+
+
+class CycleDataset(Dataset):
+	def __init__(self,path,split, data_percentage=1.0, means=None, stds=None, temp_feats_path=None):
+
+
+		self.data_dir=path
+		self.split=split
+
+		self.total_below_0 = 0
+		self.total_above_365 = 0
+		self.total_nan = 0
+		self.total = 0
+		self.data_percentage = data_percentage
+		# Region filtering removed - hardcoded to "all"
+
+		self.correct_indices = [2, 5, 8, 11]
+		self.correct_indices = [i - 1 for i in self.correct_indices]  # Convert to zero-based index
+
+		if means is None or stds is None:
+			self.get_means_stds()
+		else:
+			self.means = np.array(means)
+			self.stds = np.array(stds)
+
+			print("Using precomputed means and stds")
+
+		self.assign_region_weights()
+		self.temp_feats_path = temp_feats_path
+
+		# self.test_theory()
+
+	def get_means_stds(self):
+		"""
+		Compute or load the mean and standard deviation for image data.
+		Uses shared utility function to avoid code duplication.
+		"""
+		self.means, self.stds = compute_or_load_means_stds(
+			data_dir=self.data_dir,
+			split=self.split,
+			data_percentage=self.data_percentage,
+			num_bands=6,
+			load_raster_fn=load_raster,
+			file_suffix="",
+		)
+
+	def assign_region_weights(self):
+		"""
+		Assigns an ecoregion and a sampling weight to each tile based on its location.
+		Requires a shapefile of ecoregions and a GeoJSON of tile geometries.
+		"""
+
+		# --- Paths (update as needed) ---
+		geo_path = path_config.get_data_geojson()
+		eco_path = "useco1/NA_CEC_Eco_Level1.shp"
+
+		# --- Load tile geometries ---
+		geo_gdf = gpd.read_file(geo_path)
+		geo_gdf = geo_gdf.rename(columns={"Site_ID": "SiteID"})
+		geo_gdf["HLStile"] = "T" + geo_gdf["name"]
+		geo_gdf = geo_gdf.set_crs("EPSG:4326").to_crs(epsg=3857)
+		geo_gdf["centroid"] = geo_gdf.geometry.centroid
+
+		# --- Load ecoregion polygons ---
+		eco_gdf = gpd.read_file(eco_path).to_crs(geo_gdf.crs)
+
+		# --- Build a DataFrame of your dataset tile IDs ---
+		# Assuming self.data_dir[i][2] = hls_tile_name (e.g., "T12ABC")
+		dataset_tiles = pd.DataFrame({
+			"HLStile": [d[2].split("_")[2] for d in self.data_dir],
+			"index": list(range(len(self.data_dir)))
+		})
+
+		# --- Keep only tiles that appear in dataset_tiles ---
+		geo_subset = geo_gdf[geo_gdf["HLStile"].isin(dataset_tiles["HLStile"])].copy()
+
+		# --- Drop duplicates just in case (many geo tiles map to one HLS tile) ---
+		geo_subset = geo_subset.drop_duplicates(subset="HLStile")[["HLStile", "centroid"]]
+
+		# --- Left merge: all dataset_tiles retained, unmatched centroids get NaN ---
+		tiles_with_geo = dataset_tiles.merge(
+			geo_subset,
+			on="HLStile",
+			how="left",
+			validate="many_to_one"
+		)
+
+		# Convert to GeoDataFrame
+		tiles_gdf = gpd.GeoDataFrame(tiles_with_geo, geometry="centroid", crs=geo_gdf.crs)
+
+		# --- Spatial join to assign region ---
+		joined = gpd.sjoin(tiles_gdf, eco_gdf, how="left", predicate="intersects")
+
+		# Use the desired level (e.g., NA_L1NAME)
+		region_col = "NA_L1NAME"
+		joined["region"] = joined[region_col]
+
+		# Option 1: inverse frequency weighting
+		region_counts = joined["region"].value_counts()
+		joined["weight"] = joined["region"].map(lambda r: 1.0 / region_counts.get(r, 1))
+
+		# Normalize weights to sum to 1
+		joined["weight"] = joined["weight"] / joined["weight"].sum()
+
+		# --- Save region + weight info ---
+		self.region_labels = joined["region"].fillna("Unknown").tolist()
+		self.sample_weights = joined["weight"].tolist()
+
+	def __len__(self):
+		return len(self.data_dir)
+
+	def normalize_image(self, image, means, stds):
+		"""
+		Normalize a (bands, time, H, W) image using per-band means/stds (across all time steps).
+		`image` is (bands, time, H, W)
+		Pixels where all bands/time steps are zero are left as zero (not normalized).
+		Returns a torch tensor with shape (1, bands, time, H, W)
+		"""
+		number_of_channels = image.shape[0]  # bands
+		number_of_time_steps = image.shape[1]
+		bands, time, H, W = image.shape
+		vh, vw = (330, 330)  # e.g. 330, 330
+
+		# Reshape for broadcasting
+		means1 = means.reshape(bands, 1, 1, 1)
+		stds1 = stds.reshape(bands, 1, 1, 1)
+
+		# Initialize output with zeros (preserve padding)
+		normalized = np.zeros_like(image, dtype=np.float32)
+
+		# Create mask for pixels where all bands/time steps are zero
+		# Shape: (H, W) - True where pixel should be normalized
+		valid_region = image[:, :, :vh, :vw]
+		non_zero_mask = np.any(valid_region != 0, axis=(0, 1))  # (vh, vw)
+
+		# Normalize only valid region where pixels are non-zero
+		normalized_valid = (
+			(valid_region.astype(np.float32) - means1) / (stds1 + 1e-6)
+		)
+		
+		# Apply mask: keep normalized values only where pixels are non-zero
+		# Broadcast mask from (vh, vw) to (bands, time, vh, vw)
+		normalized[:, :, :vh, :vw] = np.where(
+			non_zero_mask[np.newaxis, np.newaxis, :, :],
+			normalized_valid,
+			0.0
+		)
+
+		# Convert to torch tensor with batch dimension
+		normalized_tensor = torch.from_numpy(
+			normalized.reshape(1, number_of_channels, number_of_time_steps, *image.shape[-2:])
+		).to(torch.float32)
+
+		return normalized_tensor
+
+	def process_gt(self,gt):
+		gt[gt == 32767] = -1
+		gt[gt < 0] = -1
+		gt = day_of_year_to_decimal_month(gt)
+
+		return gt.astype(np.float32)
+
+	def __getitem__(self,idx):
+
+		image_path=self.data_dir[idx][0]
+		output_path=self.data_dir[idx][1]
+		hls_tile_name = self.data_dir[idx][2]
+
+		images = []
+		for path in image_path:
+			images.append(load_raster_input(path)[:, np.newaxis])
+
+		gt_mask=load_raster_output(output_path)
+		gt_mask = gt_mask[self.correct_indices, :, :]
+
+		image = np.concatenate(images, axis=1)
+		final_image=self.normalize_image(image, self.means, self.stds)
+		gt_mask = self.process_gt(gt_mask)
+
+		to_return = {
+			"image": final_image,
+			"image_unprocessed": image,
+			"gt_mask": gt_mask,
+			"hls_tile_name": hls_tile_name,
+		}
+
+
+		if self.temp_feats_path is not None:
+			temp_feats = np.load(self.temp_feats_path + f"{hls_tile_name}.npy")
+			to_return["temp_feats"] = temp_feats
+
+		return to_return
+
+
+# def test_theory(self): 
+
+# 	total_all_zeros_pixels = 0
+# 	total_nans_imgs = 0
+# 	total_nans_gts = 0 
+# 	total_negative_input = 0
+# 	total_all_high_pixels = 0
+# 	for i in tqdm(range(len(self.data_dir))):
+
+# 		image_path = self.data_dir[i][0]
+# 		gt_path = self.data_dir[i][1]
+			
+# 		images = []
+# 		for path in image_path:
+# 			images.append(load_raster_input(path)[:, np.newaxis])
+
+# 		img = np.concatenate(images, axis=1)  # shape: (num_bands, time_steps, H, W)
+# 		gt_mask = load_raster_output(gt_path)
+# 		img = img[:, :, :330, :330]
+
+# 		total_all_zeros_pixels += np.sum(np.all(img == 0, axis=(0, 1)))
+# 		total_nans_imgs += np.sum(np.isnan(img)) 
+# 		total_nans_gts += np.sum(gt_mask==32767) 
+# 		total_negative_input += np.sum(img == -9999)
+# 		total_all_high_pixels += np.sum(np.all(img == -9999, axis=(0, 1)))
+
+# 		img = self.normalize_image(img, self.means, self.stds)
+
+# 	print(total_all_zeros_pixels)
+# 	print(total_nans_imgs)
+# 	print(total_nans_gts)
+# 	print(total_negative_input)
+# 	print(total_all_high_pixels)
+
+# 	quit()
+
