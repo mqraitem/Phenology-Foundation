@@ -1,7 +1,6 @@
 import os
 import pickle
 import argparse
-from typing import Any, Callable
 import numpy as np
 from tqdm import tqdm
 import torch

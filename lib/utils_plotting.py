@@ -450,7 +450,7 @@ def sort_df(df):
 	return df.sort_values(by=['years', 'HLStile', 'SiteID', 'row', 'col', 'version']).reset_index(drop=True)
 
 def results_file(split="test"):
-	dir = "../results"
+	dir = "results/"
 
 	import os 
 	results = {}
@@ -459,7 +459,7 @@ def results_file(split="test"):
 		if split not in results_file:
 			continue
 		
-		df = pd.read_csv(f"../results/{results_file}")
+		df = pd.read_csv(f"results//{results_file}")
 		results[results_file[:-4]] = df
 
 	for key in results.keys(): 
@@ -470,7 +470,7 @@ def results_file(split="test"):
 		results_w_regions[key] = add_region_to_results(
 			results_df=results[key],
 			geo_path=path_config.get_data_geojson(),
-			eco_path="../useco1/NA_CEC_Eco_Level1.shp",
+			eco_path="useco1/NA_CEC_Eco_Level1.shp",
 			region_column="NA_L1NAME"  # or "US_L1NAME"/"US_L3NAME"
 		)
 
