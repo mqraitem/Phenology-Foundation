@@ -7,6 +7,8 @@ import geopandas as gpd
 import pandas as pd
 import path_config
 from lib.utils import compute_or_load_means_stds, day_of_year_to_decimal_month
+from datetime import datetime
+
 
 def load_raster(path,crop=None):
 
@@ -57,7 +59,7 @@ def load_raster_output(path):
 
 
 class CycleDataset(Dataset):
-	def __init__(self,path,split, data_percentage=1.0, means=None, stds=None, temp_feats_path=None):
+	def __init__(self,path,split, data_percentage=1.0, means=None, stds=None, feed_timeloc=False):
 
 
 		self.data_dir=path
@@ -82,9 +84,40 @@ class CycleDataset(Dataset):
 			print("Using precomputed means and stds")
 
 		self.assign_region_weights()
-		self.temp_feats_path = temp_feats_path
+		self.assign_location_time_info()
+		self.feed_timeloc = feed_timeloc
 
 		# self.test_theory()
+
+	def set_feed_timeloc(self, feed_timeloc): 
+		self.feed_timeloc = feed_timeloc
+
+	def assign_location_time_info(self): 
+		geo_path = path_config.get_data_geojson()
+		geo_gdf = gpd.read_file(geo_path)
+		geo_gdf = geo_gdf.rename(columns={"Site_ID": "SiteID"})
+		geo_gdf["HLStile"] = "T" + geo_gdf["name"]
+		geo_gdf = geo_gdf.set_crs("EPSG:4326")
+		geo_gdf["centroid"] = geo_gdf.geometry.centroid
+
+		self.all_locations = {} 
+		self.all_times = {}
+
+		for input in self.data_dir: 
+			full_id = input[2]
+			hls_tile = full_id.split("_")[-1]
+			site_id = full_id.split("_")[-2]
+			centroid = geo_gdf[(geo_gdf["HLStile"] == hls_tile) & (geo_gdf["SiteID"] == site_id)]["centroid"].iloc[0]
+			location_coords = [centroid.y, centroid.x]  # [lat, lon]
+
+			self.all_locations[full_id] =  location_coords
+
+			all_input_images_times = [x.split("/")[-1].split("_")[2].split("-") for x in input[0]]
+			temp_coords = [[int(x[0]), int(x[1])] for x in all_input_images_times]
+			temp_coords = [[x[0], datetime(x[0], x[1], 15).timetuple().tm_yday] for x in temp_coords]
+
+			self.all_times[full_id] = temp_coords
+
 
 	def get_means_stds(self):
 		"""
@@ -204,7 +237,7 @@ class CycleDataset(Dataset):
 
 		# Convert to torch tensor with batch dimension
 		normalized_tensor = torch.from_numpy(
-			normalized.reshape(1, number_of_channels, number_of_time_steps, *image.shape[-2:])
+			normalized.reshape(number_of_channels, number_of_time_steps, *image.shape[-2:])
 		).to(torch.float32)
 
 		return normalized_tensor
@@ -233,17 +266,29 @@ class CycleDataset(Dataset):
 		final_image=self.normalize_image(image, self.means, self.stds)
 		gt_mask = self.process_gt(gt_mask)
 
-		to_return = {
-			"image": final_image,
-			"image_unprocessed": image,
-			"gt_mask": gt_mask,
-			"hls_tile_name": hls_tile_name,
-		}
+		temporal_coords = self.all_times[hls_tile_name]
+		location_coords = self.all_locations[hls_tile_name]
 
 
-		if self.temp_feats_path is not None:
-			temp_feats = np.load(self.temp_feats_path + f"{hls_tile_name}.npy")
-			to_return["temp_feats"] = temp_feats
+		if self.feed_timeloc: 
+			to_return = {
+				"image": {
+					"chip": final_image, 
+					"temporal_coords": torch.tensor(temporal_coords, dtype=torch.float32),
+					"location_coords": torch.tensor(location_coords, dtype=torch.float32),
+				},
+				"image_unprocessed": image,
+				"gt_mask": gt_mask,
+				"hls_tile_name": hls_tile_name,
+
+			}
+		else: 
+			to_return = {
+				"image": final_image,
+				"image_unprocessed": image,
+				"gt_mask": gt_mask,
+				"hls_tile_name": hls_tile_name,
+			}
 
 		return to_return
 

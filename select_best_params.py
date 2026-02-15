@@ -9,7 +9,7 @@ import path_config
 import sys
 sys.path.append("../")
 
-from lib.utils import get_data_paths, eval_data_loader, get_masks_paper
+from lib.utils import get_data_paths, eval_data_loader, get_masks_paper, str2bool
 from lib.dataloaders.dataloaders import CycleDataset
 
 #######################################################################################
@@ -44,6 +44,7 @@ def main():
 		batch_size = 2 if "shallow_transformer" not in group else 4
 
 		path_val = get_data_paths("validation", data_percentage)
+		
 		cycle_dataset_val = CycleDataset(path_val, split="validation", data_percentage=data_percentage)
 		val_dataloader = DataLoader(cycle_dataset_val, batch_size=batch_size, shuffle=False, num_workers=2)
 
@@ -124,8 +125,13 @@ def main():
 					prithvi_config = yaml.safe_load(f)
 				prithvi_config["pretrained_cfg"]["img_size"] = 336
 
+				if "_feed_timeloc" in params: 
+					feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
+				else: 
+					feed_timeloc = False
+				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
 				from lib.models.prithvi import PrithviSeg
-				model=PrithviSeg(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m")
+				model=PrithviSeg(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", feed_timeloc=feed_timeloc)
 
 			model=model.to(device)
 			model.load_state_dict(torch.load(checkpoint)["model_state_dict"])

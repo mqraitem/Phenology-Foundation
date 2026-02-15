@@ -166,7 +166,7 @@ def main():
 			input = batch_data["image"]
 			mask = batch_data["gt_mask"]	
 
-			input=input.to(device)[:, 0]
+			# input=input.to(device)[:, 0]
 			mask=mask.to(device)
 
 			optimizer.zero_grad()

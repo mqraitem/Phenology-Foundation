@@ -6,12 +6,12 @@ import yaml
 import os
 
 # Limit threading libraries BEFORE importing torch/numpy
-os.environ["OMP_NUM_THREADS"] = "2"  # OpenMP threads
-os.environ["MKL_NUM_THREADS"] = "2"  # Intel MKL threads
-os.environ["OPENBLAS_NUM_THREADS"] = "2"  # OpenBLAS threads
-os.environ["VECLIB_MAXIMUM_THREADS"] = "2"  # vecLib threads
-os.environ["NUMEXPR_NUM_THREADS"] = "2"  # NumExpr threads
-os.environ["GDAL_NUM_THREADS"] = "2"
+os.environ["OMP_NUM_THREADS"] = "4"  # OpenMP threads
+os.environ["MKL_NUM_THREADS"] = "4"  # Intel MKL threads
+os.environ["OPENBLAS_NUM_THREADS"] = "4"  # OpenBLAS threads
+os.environ["VECLIB_MAXIMUM_THREADS"] = "4"  # vecLib threads
+os.environ["NUMEXPR_NUM_THREADS"] = "4"  # NumExpr threads
+os.environ["GDAL_NUM_THREADS"] = "4"
 os.environ["GDAL_CACHEMAX"] = "512"  # Limit cache to 512MB
 
 import wandb
@@ -36,22 +36,20 @@ def main():
 	parser = get_core_parser()
 
 	# Add Prithvi-specific arguments
-	parser.add_argument("--freeze", type=str2bool, default=False,
-	                   help="Whether to freeze the backbone layers")
 	parser.add_argument("--model_size", type=str, default="300m",
 	                   help="Model size to use (300m or 600m)")
 	parser.add_argument("--load_checkpoint", type=str2bool, default=False,
 	                   help="Whether to load pretrained checkpoint")
 	parser.add_argument("--using_sampler", type=str2bool, default=False,
 	                   help="Whether to use weighted sampler for imbalanced data")
-	parser.add_argument("--temporal_only", type=str2bool, default=False,
-	                   help="Whether to use temporal-only attention")
+	parser.add_argument("--feed_timeloc", type=str2bool, default=False,
+	                   help="Whether to feed time/loc coords")
+	
 
 	args = parser.parse_args()
 
 	wandb_config = {
 		"learningrate": args.learning_rate,
-		"freeze": args.freeze,
 		"model_size": args.model_size,
 		"load_checkpoint": args.load_checkpoint, 
 		"batch_size": args.batch_size,
@@ -97,9 +95,9 @@ def main():
 		stds = None
 		print("Computing means/stds from dataset")
 
-	cycle_dataset_train=CycleDataset(path_train,split="training", data_percentage=args.data_percentage, means=means, stds=stds)
-	cycle_dataset_val=CycleDataset(path_val,split="validation", data_percentage=args.data_percentage, means=means, stds=stds)
-	cycle_dataset_test=CycleDataset(path_test,split="testing", data_percentage=args.data_percentage, means=means, stds=stds)
+	cycle_dataset_train=CycleDataset(path_train,split="training", data_percentage=args.data_percentage, means=means, stds=stds, feed_timeloc=args.feed_timeloc)
+	cycle_dataset_val=CycleDataset(path_val,split="validation", data_percentage=args.data_percentage, means=means, stds=stds, feed_timeloc=args.feed_timeloc)
+	cycle_dataset_test=CycleDataset(path_test,split="testing", data_percentage=args.data_percentage, means=means, stds=stds, feed_timeloc=args.feed_timeloc)
 
 	from torch.utils.data import WeightedRandomSampler
 
@@ -112,23 +110,26 @@ def main():
 	if args.using_sampler:
 		train_dataloader=DataLoader(cycle_dataset_train,batch_size=config["training"]["batch_size"],num_workers=2, sampler=sampler)
 	else:
-		train_dataloader=DataLoader(cycle_dataset_train,batch_size=config["training"]["batch_size"],shuffle=config["training"]["shuffle"],num_workers=2)
+		train_dataloader=DataLoader(cycle_dataset_train,batch_size=config["training"]["batch_size"],shuffle=config["training"]["shuffle"],num_workers=4)
 
 	val_dataloader=DataLoader(cycle_dataset_val,batch_size=config["validation"]["batch_size"],shuffle=config["validation"]["shuffle"],num_workers=1)
 	test_dataloader=DataLoader(cycle_dataset_test,batch_size=config["test"]["batch_size"],shuffle=config["validation"]["shuffle"],num_workers=1)
 
 	device = "cuda"
 	weights_path = path_config.get_model_weights(args.model_size) if args.load_checkpoint else None
-	model=PrithviSeg(config["pretrained_cfg"], weights_path, True, n_classes=4, model_size=args.model_size, temporal_only=args.temporal_only) #wrapper of prithvi #initialization of prithvi is done by initializing prithvi_loader.py
+	model=PrithviSeg(config["pretrained_cfg"], weights_path, True, n_classes=4, model_size=args.model_size, feed_timeloc=args.feed_timeloc) #wrapper of prithvi #initialization of prithvi is done by initializing prithvi_loader.py
 	model=model.to(device)
+
+	n_epochs = config["training"]["n_iteration"]
+	unfreeze_epoch = max(1, int(0.1 * n_epochs)) if args.load_checkpoint else 0
 
 	print_trainable_parameters(model, detailed=True)
 
-	model.backbone.model.encoder.eval()
-	for blk in model.backbone.model.encoder.blocks:
-		for param in blk.parameters():
+	if args.load_checkpoint:
+		model.backbone.eval()
+		for param in model.backbone.parameters():
 			param.requires_grad = False
-
+		print(f"Backbone frozen for first {unfreeze_epoch} epoch(s)")
 
 	group_name_checkpoint = f"{group_name}_{args.data_percentage}"
 	checkpoint_dir = path_config.get_checkpoint_root() + f"/{group_name_checkpoint}"
@@ -151,16 +152,16 @@ def main():
 			input = batch_data["image"]
 			mask = batch_data["gt_mask"]
 
-			input=input.to(device)[:, 0]
+			# input=input.to(device)[:, 0]
 			mask=mask.to(device)
 
 			optimizer.zero_grad()
-			out=model(input)
 
+			out=model(input)			
 			out = out[:, :, :330, :330]
 
 			loss=segmentation_loss(mask=mask,pred=out,device=device)
-			loss_i += loss.item() * input.size(0)  # Multiply by batch size
+			loss_i += loss.item() * mask.size(0)
 
 			loss.backward()
 			optimizer.step()
@@ -203,14 +204,12 @@ def main():
 			save_checkpoint(model, optimizer, epoch, epoch_loss_train, epoch_loss_val, checkpoint)
 			best_acc_val=acc_dataset_val_mean
 
-		if epoch == 1 and (not args.freeze): 
-			model.backbone.model.encoder.train()
-			for blk in model.backbone.model.encoder.blocks:
-				for param in blk.parameters():
-					param.requires_grad = True
-
-			print("UnFreezing prithvi model")
-			print("="*100)
+		if epoch + 1 == unfreeze_epoch:
+			model.backbone.train()
+			for param in model.backbone.parameters():
+				param.requires_grad = True
+			print(f"Unfreezing backbone at epoch {epoch + 1}")
+			print("=" * 100)
 
 	model.load_state_dict(torch.load(checkpoint)["model_state_dict"])
 

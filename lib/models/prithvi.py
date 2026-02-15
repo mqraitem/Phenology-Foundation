@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-from lib.models.prithvi_mae import TemporalOnlyAttention
     
 
 class PrithviReshape(nn.Module):
@@ -26,26 +25,12 @@ class PrithviReshape(nn.Module):
 
 from timm.models.vision_transformer import Block
 
-def make_temporal_only_attention(prithvi_vit_module, num_frames: int):
-    """
-    Replace each Block.attn with TemporalOnlyAttention (weight-preserving).
-    Call this ONCE after loading the pretrained checkpoint.
-
-    prithvi_vit_module: instance of your PrithviViT
-    num_frames: T used by the encoder (prithvi_vit_module.num_frames)
-    """
-    for i, blk in enumerate(prithvi_vit_module.blocks):
-        old = blk.attn
-        new = TemporalOnlyAttention.from_attention(old, num_frames=num_frames)
-        blk.attn = new
-
 
 class PrithviBackbone(nn.Module):
     def __init__(self,
                  prithvi_params: dict,
                  prithvi_ckpt_path: str = None,
-                 reshape: bool = True,
-                 temporal_only: bool = False):
+                 reshape: bool = True):
         super().__init__()
         self.prithvi_ckpt_path = prithvi_ckpt_path
         self.prithvi_params = prithvi_params
@@ -77,8 +62,6 @@ class PrithviBackbone(nn.Module):
             _ = self.model.load_state_dict(checkpoint, strict=False)
             
         self.reshaper = PrithviReshape(prithvi_params["patch_size"], prithvi_params["img_size"]) if reshape else nn.Identity()
-        if temporal_only:
-            make_temporal_only_attention(self.model.encoder, num_frames=self.model.encoder.num_frames)
 
 
 
@@ -103,6 +86,7 @@ class PrithviBackbone(nn.Module):
                                 temporal,
                                 location,
                                 input_size=(self.prithvi_params["num_frames"], self.prithvi_params["img_size"], self.prithvi_params["img_size"]))
+
         return self.reshaper(latent)
 
 
@@ -138,10 +122,12 @@ class PrithviSeg(nn.Module):
                  reshape: bool = True, 
                  n_classes: int = 1,
                  model_size: str="300m",
-                 temporal_only: bool = False):
+                 feed_timeloc: bool = False):
         super().__init__()
 
-        self.backbone = PrithviBackbone(prithvi_params, prithvi_ckpt_path, reshape, temporal_only)
+        if feed_timeloc:
+            prithvi_params["coords_encoding"] = ["time", "location"] 
+        self.backbone = PrithviBackbone(prithvi_params, prithvi_ckpt_path, reshape)
 
         if model_size == "300m":
             print("Dim: ", prithvi_params["embed_dim"]*prithvi_params["num_frames"])
@@ -157,7 +143,13 @@ class PrithviSeg(nn.Module):
         self.n_classes = n_classes  
 
     def forward(self, x):
-        batch_size = x.size(0)
+        if isinstance(x, dict):
+            batch_size = x["chip"].size(0)
+            x = {k:v.cuda() for k,v in x.items()}
+        else:
+            batch_size = x.size(0)
+            x = x.cuda()
+
         x = self.backbone(x)
         x = self.head(x)
         x = x.view(batch_size, self.n_classes, x.size(2), x.size(3))   

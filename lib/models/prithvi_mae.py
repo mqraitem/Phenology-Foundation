@@ -17,9 +17,7 @@
 # transformers: https://github.com/huggingface/transformers
 # --------------------------------------------------------
 
-from functools import partial
-from typing import List, Tuple
-
+import warnings
 import logging
 import numpy as np
 import torch
@@ -28,11 +26,12 @@ from einops import rearrange
 from timm.layers import to_2tuple
 from timm.models.vision_transformer import Block
 
+logger = logging.getLogger(__name__)
+
 
 def get_3d_sincos_pos_embed(embed_dim, grid_size, add_cls_token=False):
     """
     Create 3D sin/cos positional embeddings.
-
     Args:
         embed_dim (int):
             Embedding dimension.
@@ -40,7 +39,6 @@ def get_3d_sincos_pos_embed(embed_dim, grid_size, add_cls_token=False):
             The grid depth, height and width.
         add_cls_token (bool, *optional*, defaults to False):
             Whether or not to add a classification (CLS) token.
-
     Returns:
         (`torch.FloatTensor` of shape (grid_size[0]*grid_size[1]*grid_size[2], embed_dim) or
         (1+grid_size[0]*grid_size[1]*grid_size[2], embed_dim): the position embeddings (with or without cls token)
@@ -91,12 +89,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 
 
 def _get_1d_sincos_embed_from_grid_torch(embed_dim: int, pos: torch.Tensor):
-    """ This is the torch version of *get_1d_sincos_pos_embed_from_grid()*. However,
-        it was modified to cast omega values to pos.dtype which must be float (and not int as in
-        regular positional embeddings). This was required in order to allow for native FSDP mixed
-        precision support: modify omega to appropriate dtype (pos carries the correct float dtype),
-        instead of manually forcing float32.
-
+    """ Modified torch version of *get_1d_sincos_pos_embed_from_grid()*.
         embed_dim: output dimension for each position
         pos: a list of positions to be encoded: size (M,) - must be float dtype!
         out: (M, D)
@@ -130,12 +123,56 @@ def _init_weights(module):
         module.weight.data.fill_(1.0)
 
 
+def _interpolate_pos_encoding(
+        pos_embed: torch.Tensor,
+        grid_size: tuple[int, int, int] | list[int],
+        patch_size: tuple[int, int, int] | list[int],
+        shape: tuple[int, int, int],
+        embed_dim: int,
+):
+    """
+    Adapted from:
+    - transformers.models.vit.modeling_vit.ViTEmbeddings.interpolate_pos_encoding,
+    - https://github.com/facebookresearch/dino/blob/de9ee3df6cf39fac952ab558447af1fa1365362a/vision_transformer.py#L174-L194
+    """
+    t, h, w = shape
+    t_patches = t // patch_size[0]
+    h_patches = h // patch_size[1]
+    w_patches = w // patch_size[2]
+
+    if [t_patches, h_patches, w_patches] == grid_size:
+        # No interpolation needed
+        return pos_embed
+    if t_patches != grid_size[0]:
+        # Re-compute pos embedding to handle changed num_frames
+        new_grid_size = (t_patches, *grid_size[1:])
+        new_pos_embed = get_3d_sincos_pos_embed(pos_embed.shape[-1], new_grid_size, add_cls_token=True)
+        new_pos_embed = torch.from_numpy(new_pos_embed).float().unsqueeze(0)
+    else:
+        new_grid_size = grid_size
+        new_pos_embed = pos_embed
+
+    class_pos_embed, patch_pos_embed = new_pos_embed[:, :1], new_pos_embed[:, 1:]
+
+    patch_pos_embed = patch_pos_embed.reshape(*new_grid_size, embed_dim).permute(0, 3, 1, 2)
+
+    patch_pos_embed = nn.functional.interpolate(
+        patch_pos_embed,
+        size=(h_patches, w_patches),
+        mode='bicubic',
+        align_corners=True,
+    )
+    patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, embed_dim)
+
+    return torch.cat((class_pos_embed, patch_pos_embed), dim=1)
+
+
 class PatchEmbed(nn.Module):
     """3D version of timm.models.vision_transformer.PatchEmbed"""
     def __init__(
             self,
-            input_size: Tuple[int, int, int] = (1, 224, 224),
-            patch_size: Tuple[int, int, int] = (1, 16, 16),
+            input_size: tuple[int, int, int] = (1, 224, 224),
+            patch_size: tuple[int, int, int] = (1, 16, 16),
             in_chans: int = 3,
             embed_dim: int = 768,
             norm_layer: nn.Module | None = None,
@@ -146,6 +183,7 @@ class PatchEmbed(nn.Module):
         self.input_size = input_size
         self.patch_size = patch_size
         self.grid_size = [s // p for s, p in zip(self.input_size, self.patch_size)]
+        assert self.grid_size >= [1, 1, 1], "Patch size is bigger than input size."
         self.num_patches = self.grid_size[0] * self.grid_size[1] * self.grid_size[2]
         self.flatten = flatten
 
@@ -156,8 +194,8 @@ class PatchEmbed(nn.Module):
         B, C, T, H, W = x.shape
 
         if T / self.patch_size[0] % 1 or H / self.patch_size[1] % 1 or W / self.patch_size[2] % 1:
-            logging.warning(f"Input {x.shape[-3:]} is not divisible by patch size {self.patch_size}."
-                            f"The border will be ignored, add backbone_padding for pixel-wise tasks.")
+            warnings.warn(f"Input {x.shape[-3:]} is not divisible by patch size {self.patch_size}."
+                          f"The border will be ignored, add backbone_padding for pixel-wise tasks.")
 
         x = self.proj(x)
         if self.flatten:
@@ -232,24 +270,22 @@ class LocationEncoder(nn.Module):
 class PrithviViT(nn.Module):
     """ Prithvi ViT Encoder"""
     def __init__(self,
-                 img_size: int | Tuple[int, int] = 224,
-                 patch_size: int | Tuple[int, int, int] = (1, 16, 16),
+                 img_size: int | tuple[int, int] = 224,
+                 patch_size: int | tuple[int, int, int] = (1, 16, 16),
                  num_frames: int = 1,
                  in_chans: int = 3,
                  embed_dim: int = 1024,
                  depth: int = 24,
                  num_heads: int = 16,
                  mlp_ratio: float = 4.,
-                 norm_layer: nn.Module = partial(torch.nn.LayerNorm, eps=1e-6),
-                 coords_encoding: List[str] | None = None,
+                 norm_layer: nn.Module = nn.LayerNorm,
+                 coords_encoding: list[str] | None = None,
                  coords_scale_learn: bool = False,
-                 encoder_only: bool = True,  # needed for timm
+                 drop_path: float = 0.,
                  ** kwargs,
                 ):
         super().__init__()
 
-        self.feature_info = []
-        self.encoder_only = encoder_only
         self.in_chans = in_chans
         self.num_frames = num_frames
         self.embed_dim = embed_dim
@@ -264,6 +300,7 @@ class PrithviViT(nn.Module):
             in_chans=in_chans,
             embed_dim=embed_dim,
         )
+        self.out_channels = [embed_dim * self.patch_embed.grid_size[0]] * depth
 
         # Optional temporal and location embedding
         coords_encoding = coords_encoding or []
@@ -281,10 +318,8 @@ class PrithviViT(nn.Module):
         # Transformer layers
         self.blocks = []
         for i in range(depth):
-            self.blocks.append(Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer))
-            self.feature_info.append(
-                {"num_chs": embed_dim * self.patch_embed.patch_size[0], "reduction": 1, "module": f"blocks.{i}"}
-            )
+            self.blocks.append(Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer,
+                                     drop_path=drop_path,))
         self.blocks = nn.ModuleList(self.blocks)
 
         self.norm = norm_layer(embed_dim)
@@ -310,7 +345,6 @@ class PrithviViT(nn.Module):
         """
         Perform per-sample random masking by per-sample shuffling. Per-sample shuffling is done by argsort random
         noise.
-
         Args:
             sequence (`torch.FloatTensor` of shape `(batch_size, sequence_length, dim)`)
             mask_ratio (float): mask ratio to use.
@@ -339,21 +373,16 @@ class PrithviViT(nn.Module):
 
         return sequence_unmasked, mask, ids_restore
 
-    def _get_pos_embed(self, x):
-        t, h, w = x.shape[-3:]
+    def interpolate_pos_encoding(self, sample_shape: tuple[int, int, int]):
 
-        pos_embed = torch.from_numpy(get_3d_sincos_pos_embed(
-            self.embed_dim,
-            (
-                t // self.patch_embed.patch_size[0],
-                h // self.patch_embed.patch_size[1],
-                w // self.patch_embed.patch_size[2],
-            ),
-            add_cls_token=True,
-        )).float().unsqueeze(0).to(x)
-
+        pos_embed = _interpolate_pos_encoding(
+            pos_embed=self.pos_embed,
+            grid_size=self.patch_embed.grid_size,
+            patch_size=self.patch_embed.patch_size,
+            shape=sample_shape,
+            embed_dim=self.embed_dim,
+        )
         return pos_embed
-
 
     def forward(
         self, x: torch.Tensor,
@@ -361,23 +390,23 @@ class PrithviViT(nn.Module):
         location_coords: None | torch.Tensor = None,
         mask_ratio=0.75
     ):
-        if x.shape[-3:] != self.patch_embed.input_size:
-            # changed input size
-            pos_embed = self._get_pos_embed(x)
-        else:
-            pos_embed = self.pos_embed
+        if len(x.shape) == 4 and self.patch_embed.input_size[0] == 1:
+            # add time dim
+            x = x.unsqueeze(2)
+        sample_shape = x.shape[-3:]
 
         # embed patches
         x = self.patch_embed(x)
 
+        pos_embed = self.interpolate_pos_encoding(sample_shape)
         # add pos embed w/o cls token
         x = x + pos_embed[:, 1:, :]
 
-        if self.temporal_encoding:
+        if self.temporal_encoding and temporal_coords is not None:
             num_tokens_per_frame = x.shape[1] // self.num_frames
             temporal_encoding = self.temporal_embed_enc(temporal_coords, num_tokens_per_frame)
             x = x + temporal_encoding
-        if self.location_encoding:
+        if self.location_encoding and location_coords is not None:
             location_encoding = self.location_embed_enc(location_coords)
             x = x + location_encoding
 
@@ -405,22 +434,20 @@ class PrithviViT(nn.Module):
         if len(x.shape) == 4 and self.patch_embed.input_size[0] == 1:
             # add time dim
             x = x.unsqueeze(2)
-
-        if x.shape[-3:] != self.patch_embed.input_size:
-            pos_embed = self._get_pos_embed(x)
-        else:
-            pos_embed = self.pos_embed
+        sample_shape = x.shape[-3:]
 
         # embed patches
         x = self.patch_embed(x)
+
+        pos_embed = self.interpolate_pos_encoding(sample_shape)
         # add pos embed w/o cls token
         x = x + pos_embed[:, 1:, :]
 
-        if self.temporal_encoding:
-            num_tokens_per_frame = x.shape[1] // self.patch_embed.num_frames
+        if self.temporal_encoding and temporal_coords is not None:
+            num_tokens_per_frame = x.shape[1] // self.num_frames
             temporal_encoding = self.temporal_embed_enc(temporal_coords, num_tokens_per_frame)
             x = x + temporal_encoding
-        if self.location_encoding:
+        if self.location_encoding and location_coords is not None:
             location_encoding = self.location_embed_enc(location_coords)
             x = x + location_encoding
 
@@ -437,7 +464,6 @@ class PrithviViT(nn.Module):
 
         x = self.norm(x)
         # out[-1] = x
-        # return out
         return x
 
     def prepare_features_for_image_model(self, features: list[torch.Tensor]) -> list[torch.Tensor]:
@@ -462,8 +488,8 @@ class PrithviViT(nn.Module):
 class MAEDecoder(nn.Module):
     """ Transformer Decoder used in the Prithvi MAE"""
     def __init__(self,
-                 patch_size: int | Tuple[int, int, int] = (1, 16, 16),
-                 grid_size: List[int] | Tuple[int, int, int] = (3, 14, 14),
+                 patch_size: int | tuple[int, int, int] = (1, 16, 16),
+                 grid_size: list[int] | tuple[int, int, int] = (3, 14, 14),
                  in_chans: int = 3,
                  encoder_embed_dim: int = 1024,
                  decoder_embed_dim: int = 512,
@@ -471,7 +497,7 @@ class MAEDecoder(nn.Module):
                  num_heads: int = 16,
                  mlp_ratio: float = 4.,
                  norm_layer: nn.Module = nn.LayerNorm,
-                 coords_encoding: List[str] | None = None,
+                 coords_encoding: list[str] | None = None,
                  coords_scale_learn: bool = False,
                  ):
         super().__init__()
@@ -520,6 +546,18 @@ class MAEDecoder(nn.Module):
         torch.nn.init.normal_(self.mask_token, std=0.02)
         self.apply(_init_weights)
 
+    def interpolate_pos_encoding(self, sample_shape: tuple[int, int, int]):
+
+        pos_embed = _interpolate_pos_encoding(
+            pos_embed=self.decoder_pos_embed,
+            grid_size=self.grid_size,
+            patch_size=self.patch_size,
+            shape=sample_shape,
+            embed_dim=self.decoder_embed_dim,
+        )
+
+        return pos_embed
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -530,44 +568,31 @@ class MAEDecoder(nn.Module):
     ):
         # embed tokens
         x = self.decoder_embed(hidden_states)
-
-        t, h, w = input_size[-3:]
-        decoder_pos_embed = torch.from_numpy(
-            get_3d_sincos_pos_embed(
-                self.decoder_embed_dim,
-                (
-                    t // self.patch_size[0],
-                    h // self.patch_size[1],
-                    w // self.patch_size[2],
-                ),
-                add_cls_token=True,
-            )
-        ).to(x)
+        cls_token = x[:, :1, :]
 
         # append mask tokens to sequence
         mask_tokens = self.mask_token.repeat(x.shape[0], ids_restore.shape[1] + 1 - x.shape[1], 1)
-        x_ = torch.cat([x[:, 1:, :], mask_tokens], dim=1)  # no cls token
+        x = torch.cat([x[:, 1:, :], mask_tokens], dim=1)  # no cls token
         # unshuffle
-        x_ = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]).to(x_.device))
-        x = torch.cat([x[:, :1, :], x_], dim=1)  # append cls token
+        x = torch.gather(x, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]).to(x.device))
+
         # add pos embed
-        x = x + decoder_pos_embed
+        decoder_pos_embed = self.interpolate_pos_encoding(input_size[-3:])
+        cls_token = cls_token + decoder_pos_embed[:, :1, :]
+        x = x + decoder_pos_embed[:, 1:, :]
 
-        # remove cls token
-        x_ = x[:, 1:, :]
-
-        if self.temporal_encoding:
-            num_tokens_per_frame = x_.shape[1] // self.num_frames
+        if self.temporal_encoding and temporal_coords is not None:
+            num_tokens_per_frame = x.shape[1] // self.num_frames
             temporal_encoding = self.temporal_embed_dec(temporal_coords, num_tokens_per_frame)
             # Add temporal encoding w/o cls token
-            x_ = x_ + temporal_encoding
-        if self.location_encoding:
+            x = x + temporal_encoding
+        if self.location_encoding and location_coords is not None:
             location_encoding = self.location_embed_dec(location_coords)
             # Add location encoding w/o cls token
-            x_ = x_ + location_encoding
+            x = x + location_encoding
 
         # append cls token
-        x = torch.cat([x[:, :1, :], x_], dim=1)
+        x = torch.cat([cls_token, x], dim=1)
 
         # apply Transformer layers (blocks)
         for block in self.decoder_blocks:
@@ -587,21 +612,23 @@ class PrithviMAE(nn.Module):
     """ Prithvi Masked Autoencoder"""
 
     def __init__(self,
-                 img_size: int | Tuple[int, int] = 224,
-                 patch_size: int | Tuple[int, int, int] = (1, 16, 16),
-                 num_frames: int = 3,
-                 in_chans: int = 3,
-                 embed_dim: int = 1024,
-                 depth: int = 24,
-                 num_heads: int = 16,
+                 img_size: int | tuple[int, int] = 224,
+                 patch_size: int | tuple[int, int, int] = (1, 16, 16),
+                 num_frames: int = 4,
+                 in_chans: int = 6,
+                 embed_dim: int = 768,
+                 depth: int = 12,
+                 num_heads: int = 12,
                  decoder_embed_dim: int = 512,
                  decoder_depth: int = 8,
                  decoder_num_heads: int = 16,
                  mlp_ratio: float = 4.,
-                 norm_layer: nn.Module = partial(torch.nn.LayerNorm, eps=1e-6),
+                 norm_layer: nn.Module = nn.LayerNorm,
                  norm_pix_loss: bool = False,
-                 coords_encoding: List[str] | None = None,
+                 coords_encoding: list[str] | None = None,
                  coords_scale_learn: bool = False,
+                 drop_path: float = 0.,
+                 mask_ratio: float = 0.75,
                  encoder_only: bool = False,
                  **kwargs,
                  ):
@@ -619,9 +646,9 @@ class PrithviMAE(nn.Module):
             norm_layer=norm_layer,
             coords_encoding=coords_encoding,
             coords_scale_learn=coords_scale_learn,
+            drop_path=drop_path,
         )
 
-        self.encoder_only = encoder_only
 
         if not encoder_only:
             self.decoder = MAEDecoder(
@@ -640,16 +667,19 @@ class PrithviMAE(nn.Module):
         else:
             self.decoder = nn.Identity()
 
+
+        self.mask_ratio = mask_ratio
         self.norm_pix_loss = norm_pix_loss
+        self.out_channels = self.encoder.out_channels
 
     def patchify(self, pixel_values):
         """
         Args:
             pixel_values (torch.FloatTensor of shape `(batch_size, num_channels, time, height, width)`):
                 Pixel values.
-
         Returns:
-            torch.FloatTensor of shape `(batch_size, num_patches, patch_size[0]*patch_size[1]*patch_size[2] * num_channels)`:
+            torch.FloatTensor of shape
+                `(batch_size, num_patches, patch_size[0]*patch_size[1]*patch_size[2] * num_channels)`:
                 Patchified pixel values.
         """
         patch_size_t, patch_size_h, patch_size_w = self.encoder.patch_embed.patch_size
@@ -659,18 +689,16 @@ class PrithviMAE(nn.Module):
         patchified_pixel_values = rearrange(pixel_values, 'b c (t s) (h p) (w q) -> b (t h w) (s p q c)',
                                             c=num_channels, s=patch_size_t, p=patch_size_h, q=patch_size_w)
 
-
         return patchified_pixel_values
 
-    def unpatchify(self, patchified_pixel_values, image_size: Tuple[int, int] | None = None):
+    def unpatchify(self, patchified_pixel_values, image_size: tuple[int, int] | None = None):
         """
         Args:
             patchified_pixel_values (`torch.FloatTensor` of shape
-                `(batch_size, num_patches, patch_size[0]*patch_size[1]*patch_size[2] * num_channels)`:
+                `(batch_size, num_patches, patch_size[0]*patch_size[1]*patch_size[2] * num_channels))`:
                 Patchified pixel values.
-            image_size (`Tuple[int, int]`, *optional*):
+            image_size (`tuple[int, int]`, *optional*):
                 Original image size.
-
         Returns:
             `torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`:
                 Pixel values.
@@ -692,11 +720,11 @@ class PrithviMAE(nn.Module):
         Args:
             pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, time, height, width)`):
                 Pixel values.
-            pred (`torch.FloatTensor` of shape `(batch_size, num_patches, patch_size[0]*patch_size[1]*patch_size[2] * num_channels)`:
+            pred (`torch.FloatTensor` of shape
+                `(batch_size, num_patches, patch_size[0]*patch_size[1]*patch_size[2] * num_channels)`:
                 Predicted pixel values.
             mask (`torch.FloatTensor` of shape `(batch_size, sequence_length)`):
                 Tensor indicating which patches are masked (1) and which are not (0).
-
         Returns:
             `torch.FloatTensor`: Pixel reconstruction loss.
         """
@@ -716,12 +744,13 @@ class PrithviMAE(nn.Module):
         pixel_values: torch.Tensor,
         temporal_coords: None | torch.Tensor = None,
         location_coords: None | torch.Tensor = None,
-        mask_ratio: float = 0.75
+        mask_ratio: float = None,
     ):
         if len(pixel_values.shape) == 4 and self.encoder.patch_embed.input_size[0] == 1:
             # add time dim
             pixel_values = pixel_values.unsqueeze(2)
 
+        mask_ratio = mask_ratio or self.mask_ratio
         latent, mask, ids_restore = self.encoder(pixel_values, temporal_coords, location_coords, mask_ratio)
         pred = self.decoder(latent, ids_restore, temporal_coords, location_coords, input_size=pixel_values.shape)
         loss = self.forward_loss(pixel_values, pred, mask)
@@ -732,91 +761,6 @@ class PrithviMAE(nn.Module):
         x: torch.Tensor,
         temporal_coords: None | torch.Tensor = None,
         location_coords: None | torch.Tensor = None,
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         return self.encoder.forward_features(x, temporal_coords, location_coords)
 
-
-import torch
-import torch.nn as nn
-
-class TemporalOnlyAttention(nn.Module):
-    """
-    Temporal-only MHSA over patch tokens:
-      - Attends along T independently for each spatial site S.
-      - Leaves the CLS token untouched inside attention (it still flows via residual).
-    This copies weights from a timm Attention module: qkv, proj, and keeps head config.
-    """
-    def __init__(self, num_heads, embed_dim, attn_drop=0., proj_drop=0., qkv_bias=True, num_frames=1):
-        super().__init__()
-        self.num_heads = num_heads
-        self.embed_dim = embed_dim
-        self.head_dim = embed_dim // num_heads
-        self.scale = self.head_dim ** -0.5
-        self.num_frames = num_frames  # T known from the encoder config (patch_t == 1 in your setup)
-
-        # parameters copied from the original Attention
-        self.qkv = nn.Linear(embed_dim, embed_dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(embed_dim, embed_dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-    @classmethod
-    def from_attention(cls, attn_module, num_frames: int):
-        """Build from an existing timm Attention, copying weights."""
-        m = cls(
-            num_heads=attn_module.num_heads,
-            embed_dim=attn_module.qkv.in_features,
-            attn_drop=attn_module.attn_drop.p if isinstance(attn_module.attn_drop, nn.Dropout) else 0.,
-            proj_drop=attn_module.proj_drop.p if isinstance(attn_module.proj_drop, nn.Dropout) else 0.,
-            qkv_bias=attn_module.qkv.bias is not None,
-            num_frames=num_frames,
-        )
-        # copy weights
-        m.qkv.load_state_dict(attn_module.qkv.state_dict(), strict=True)
-        m.proj.load_state_dict(attn_module.proj.state_dict(), strict=True)
-        return m
-
-    def forward(self, x):
-        """
-        x: (B, 1 + S*T, C) where the first token is CLS.
-        We compute MHSA only on the patch tokens along T within each spatial site.
-        """
-        B, N, C = x.shape
-        assert C == self.embed_dim, "Embed dim mismatch"
-
-        # split out CLS
-        cls_tok = x[:, :1, :]               # (B, 1, C)
-        toks    = x[:, 1:, :]               # (B, S*T, C)
-
-        # infer S from length and known T
-        T = self.num_frames
-        assert (toks.shape[1] % T) == 0, f"Sequence length {toks.shape[1]} not divisible by T={T}"
-        S = toks.shape[1] // T              # number of spatial sites
-
-        # qkv on patch tokens only
-        qkv = self.qkv(toks)                # (B, S*T, 3C)
-        qkv = qkv.reshape(B, S*T, 3, self.num_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)    # (3, B, h, S*T, Dh)
-        q, k, v = qkv[0], qkv[1], qkv[2]    # each (B, h, S*T, Dh)
-
-        # reshape to [B, h, S, T, Dh]
-        q = q.reshape(B, self.num_heads, S, T, self.head_dim)
-        k = k.reshape(B, self.num_heads, S, T, self.head_dim)
-        v = v.reshape(B, self.num_heads, S, T, self.head_dim)
-
-        # temporal-only attention per spatial site: [B,h,S,T,T]
-        attn = torch.einsum('bhstd,bhsud->bhstu', q, k) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        # aggregate over time -> [B,h,S,T,Dh], then flatten back to [B, S*T, C]
-        out = torch.einsum('bhstu,bhsud->bhstd', attn, v)
-        out = out.reshape(B, self.num_heads, S*T, self.head_dim)
-        out = out.transpose(2, 1).reshape(B, S*T, C)   # (B, S*T, C)
-
-        # project & concat CLS back
-        out = self.proj(out)
-        out = self.proj_drop(out)
-        out = torch.cat([cls_tok, out], dim=1)         # (B, 1+S*T, C)
-
-        return out

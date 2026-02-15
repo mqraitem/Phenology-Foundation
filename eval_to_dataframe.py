@@ -6,7 +6,7 @@ import argparse
 import pandas as pd
 import path_config
 
-from lib.utils import get_masks_paper, eval_data_loader_df, get_data_paths
+from lib.utils import get_masks_paper, eval_data_loader_df, get_data_paths, str2bool
 from lib.dataloaders.dataloaders import CycleDataset
 
 #######################################################################################
@@ -28,6 +28,9 @@ def main():
 
 	for model_name in model_names:
 
+		# if "pretrained_final" not in model_name:
+		# 	continue
+
 		data_percentage = model_name.split("_")[-1]
 
 		# Map split name for data loading
@@ -37,6 +40,7 @@ def main():
 			data_split = "validation"
 		else:  # train
 			data_split = "training"
+
 
 		data_path = get_data_paths(data_split, data_percentage)
 		cycle_dataset = CycleDataset(data_path, split=data_split, data_percentage=data_percentage)
@@ -117,8 +121,14 @@ def main():
 				prithvi_config = yaml.safe_load(f)
 			prithvi_config["pretrained_cfg"]["img_size"] = 336
 
+			if "_feed_timeloc" in best_param: 
+				feed_timeloc = str2bool(best_param.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
+			else: 
+				feed_timeloc = False
+				
+			data_loader.dataset.set_feed_timeloc(feed_timeloc)
 			from lib.models.prithvi import PrithviSeg
-			model=PrithviSeg(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m")
+			model=PrithviSeg(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", feed_timeloc=feed_timeloc)
 
 
 		model=model.to(device)

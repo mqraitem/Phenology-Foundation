@@ -253,12 +253,12 @@ def eval_data_loader(data_loader,model, device, tiles_paper_masks):
 		for _,data in tqdm(enumerate(data_loader), total=len(data_loader)):
 			
 
-			input = data["image"].to(device)[:, 0]
+			input = data["image"]
 			ground_truth = data["gt_mask"].to(device)
 			predictions=model(input)
 
 			predictions = predictions[:, :, :330, :330]
-			eval_loss += segmentation_loss(mask=data["gt_mask"].to(device),pred=predictions,device=device).item() * input.size(0)  # Multiply by batch size
+			eval_loss += segmentation_loss(mask=data["gt_mask"].to(device),pred=predictions,device=device).item() * ground_truth.size(0)  # Multiply by batch size
 
 			pred_hls_tile_all = predictions  # Average over the last dimension	
 
@@ -306,7 +306,7 @@ def eval_data_loader_df(data_loader,model, device, tiles_paper_masks, feats_path
 	with torch.no_grad():
 		for _,data in tqdm(enumerate(data_loader), total=len(data_loader)):
 			
-			input = data["image"].to(device)[:, 0]
+			input = data["image"]
 			ground_truth = data["gt_mask"].to(device)
 			hls_tile_name = data["hls_tile_name"]
 
@@ -324,7 +324,7 @@ def eval_data_loader_df(data_loader,model, device, tiles_paper_masks, feats_path
 			predictions = predictions[:, :, :330, :330]
 			pred_hls_tile_all = predictions
 
-			eval_loss += segmentation_loss(mask=data["gt_mask"].to(device),pred=predictions,device=device).item() * input.size(0)  # Multiply by batch size
+			eval_loss += segmentation_loss(mask=data["gt_mask"].to(device),pred=predictions,device=device).item() * ground_truth.size(0)  # Multiply by batch size
 
 			for gt_hls_tile, pred_hls_tile_avg, hls_tile_n in zip(ground_truth, pred_hls_tile_all, data["hls_tile_name"]): 
 				
