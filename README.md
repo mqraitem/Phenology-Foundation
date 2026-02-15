@@ -55,7 +55,6 @@ python train_lsp_pixels.py --learning_rate 1e-4 --batch_size 8
 - `--learning_rate`: Learning rate (default varies by model)
 - `--batch_size`: Batch size
 - `--data_percentage`: Fraction of training data to use (0.2, 0.4, 0.6, 0.8, 1.0)
-- `--freeze`: Freeze backbone (Prithvi models)
 - `--temporal_only`: Use temporal attention only (Prithvi models)
 - `--lora_r`, `--lora_alpha`: LoRA rank and alpha (LoRA model)
 - `--wandb`: Enable Weights & Biases logging
