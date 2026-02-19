@@ -34,7 +34,7 @@ def main():
 
 	# Parse the arguments - only core args needed for this model
 	parser = get_core_parser()
-	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
+	parser.add_argument("--loss", type=str, default="mae", choices=["mse", "mae"],
 	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 	args = parser.parse_args()
 
