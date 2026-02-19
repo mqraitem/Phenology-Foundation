@@ -169,6 +169,28 @@ def segmentation_loss_pixels(targets, preds, device, ignore_index=-1):
 		return torch.tensor(0.0, device=device)
 
 
+def segmentation_loss_pixels_mae(targets, preds, device, ignore_index=-1):
+	"""
+	Compute MAE regression loss for pixel dataset.
+
+	Args:
+		targets: (B,) tensor of ground truth labels (float)
+		preds:   (B,) or (B, num_outputs) tensor of predictions
+		device:  torch device
+		ignore_index: value in targets to ignore (default -1)
+	"""
+	criterion = nn.L1Loss(reduction="sum").to(device)
+
+	valid_mask = targets != ignore_index
+
+	if valid_mask.sum() > 0:
+		valid_pred = preds[valid_mask]
+		valid_target = targets[valid_mask]
+		loss = criterion(valid_pred, valid_target)
+		return loss / valid_mask.sum().item()
+	else:
+		return torch.tensor(0.0, device=device)
+
 
 def segmentation_loss(mask, pred, device, ignore_index=-1):
 	mask = mask.float()  # Convert mask to float for regression loss
@@ -195,6 +217,29 @@ def segmentation_loss(mask, pred, device, ignore_index=-1):
 
 	# Normalize by total valid pixels to avoid division by zero
 	return loss / total_valid_pixels if total_valid_pixels > 0 else torch.tensor(0.0, device=device)
+
+
+def segmentation_loss_mae(mask, pred, device, ignore_index=-1):
+	mask = mask.float()
+
+	criterion = nn.L1Loss(reduction="sum").to(device)
+
+	loss = 0
+	num_channels = pred.shape[1]
+	total_valid_pixels = 0
+
+	for idx in range(num_channels):
+		valid_mask = mask[:, idx] != ignore_index
+
+		if valid_mask.sum() > 0:
+			valid_pred = pred[:, idx][valid_mask]
+			valid_target = mask[:, idx][valid_mask]
+
+			loss += criterion(valid_pred, valid_target)
+			total_valid_pixels += valid_mask.sum().item()
+
+	return loss / total_valid_pixels if total_valid_pixels > 0 else torch.tensor(0.0, device=device)
+
 
 def get_masks_paper(data="train", device="cuda"):
 
@@ -242,7 +287,10 @@ def compute_accuracy(gt_hls_tile, pred_hls_tile_avg, all_errors_hls_tile, hls_ti
 	return all_errors_hls_tile
 
 
-def eval_data_loader(data_loader,model, device, tiles_paper_masks):
+def eval_data_loader(data_loader,model, device, tiles_paper_masks, loss_fn=None):
+
+	if loss_fn is None:
+		loss_fn = segmentation_loss
 
 	model.eval()
 
@@ -251,14 +299,14 @@ def eval_data_loader(data_loader,model, device, tiles_paper_masks):
 	eval_loss = 0.0
 	with torch.no_grad():
 		for _,data in tqdm(enumerate(data_loader), total=len(data_loader)):
-			
+
 
 			input = data["image"]
 			ground_truth = data["gt_mask"].to(device)
 			predictions=model(input)
 
 			predictions = predictions[:, :, :330, :330]
-			eval_loss += segmentation_loss(mask=data["gt_mask"].to(device),pred=predictions,device=device).item() * ground_truth.size(0)  # Multiply by batch size
+			eval_loss += loss_fn(mask=data["gt_mask"].to(device),pred=predictions,device=device).item() * ground_truth.size(0)  # Multiply by batch size
 
 			pred_hls_tile_all = predictions  # Average over the last dimension	
 

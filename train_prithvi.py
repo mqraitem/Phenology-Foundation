@@ -22,7 +22,7 @@ import path_config
 
 from lib.models.prithvi import PrithviSeg
 
-from lib.utils import segmentation_loss, eval_data_loader, get_masks_paper, save_checkpoint,str2bool
+from lib.utils import segmentation_loss, segmentation_loss_mae, eval_data_loader, get_masks_paper, save_checkpoint,str2bool
 from lib.utils import get_data_paths, print_trainable_parameters
 
 from lib.dataloaders.dataloaders import CycleDataset
@@ -44,7 +44,8 @@ def main():
 	                   help="Whether to use weighted sampler for imbalanced data")
 	parser.add_argument("--feed_timeloc", type=str2bool, default=False,
 	                   help="Whether to feed time/loc coords")
-	
+	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
+	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 
 	args = parser.parse_args()
 
@@ -54,6 +55,7 @@ def main():
 		"load_checkpoint": args.load_checkpoint, 
 		"batch_size": args.batch_size,
 		"data_percentage": args.data_percentage,
+		"loss": args.loss,
 	}
 
 	wandb_name = args.wandb_name
@@ -139,6 +141,9 @@ def main():
 	optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)
 	scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=5, verbose=True)
 
+	loss_fn = segmentation_loss_mae if args.loss == "mae" else segmentation_loss
+	print(f"Using loss function: {args.loss}")
+
 	best_acc_val=100
 	for epoch in range(config["training"]["n_iteration"]):
 
@@ -160,7 +165,7 @@ def main():
 			out=model(input)			
 			out = out[:, :, :330, :330]
 
-			loss=segmentation_loss(mask=mask,pred=out,device=device)
+			loss=loss_fn(mask=mask,pred=out,device=device)
 			loss_i += loss.item() * mask.size(0)
 
 			loss.backward()
@@ -173,8 +178,8 @@ def main():
 		epoch_loss_train = loss_i / len(train_dataloader.dataset)
 
 		# Validation Phase
-		acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"))
-		acc_dataset_test, _, epoch_loss_test = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"))
+		acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"), loss_fn=loss_fn)
+		acc_dataset_test, _, epoch_loss_test = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"), loss_fn=loss_fn)
 
 		if args.logging: 
 			to_log = {} 
@@ -213,8 +218,8 @@ def main():
 
 	model.load_state_dict(torch.load(checkpoint)["model_state_dict"])
 
-	acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"))
-	acc_dataset_test, _, _ = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"))
+	acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"), loss_fn=loss_fn)
+	acc_dataset_test, _, _ = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"), loss_fn=loss_fn)
 
 	if args.logging:
 		for idx in range(4): 

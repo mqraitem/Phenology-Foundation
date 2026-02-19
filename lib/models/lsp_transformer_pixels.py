@@ -46,6 +46,8 @@ class TemporalTransformer(nn.Module):
     def forward(self, x, processing_images= True, chunk_size=1000):
         # Input shape: (B, C, T, H, W)
 
+        x = x.cuda()
+
         if processing_images:
             x = x.permute(0, 3, 4, 2, 1)
             B, H, W, T, C = x.shape

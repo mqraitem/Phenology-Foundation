@@ -119,15 +119,44 @@ def main():
 					dropout=0.1
 				)
 
-			else: 
+			elif "blowup" in group:
 
 				with open(f'configs/prithvi_300m.yaml', 'r') as f:
 					prithvi_config = yaml.safe_load(f)
 				prithvi_config["pretrained_cfg"]["img_size"] = 336
 
-				if "_feed_timeloc" in params: 
+				c_per_t = int(params.split("_cpert-")[1].split("_")[0].replace(".pth", ""))
+				hidden_dim = int(params.split("_hiddendim-")[1].split("_")[0].replace(".pth", ""))
+				feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
+				n_temporal_layers = int(params.split("ntemporallayers-")[1].split("_")[0].replace(".pth", ""))
+
+				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
+				from lib.models.prithvi_blowup import PrithviSegBlowup
+				model = PrithviSegBlowup(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", c_per_t=c_per_t, hidden_dim=hidden_dim, feed_timeloc=feed_timeloc, n_temporal_layers = n_temporal_layers)
+
+
+			elif "simple" in group:
+
+				with open(f'configs/prithvi_300m.yaml', 'r') as f:
+					prithvi_config = yaml.safe_load(f)
+				prithvi_config["pretrained_cfg"]["img_size"] = 336
+
+				proj_dim = int(params.split("_projdim-")[1].split("_")[0].replace(".pth", ""))
+				feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
+
+				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
+				from lib.models.prithvi_simple import PrithviSegSimple
+				model = PrithviSegSimple(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", proj_dim=proj_dim, feed_timeloc=feed_timeloc)
+
+			else:
+
+				with open(f'configs/prithvi_300m.yaml', 'r') as f:
+					prithvi_config = yaml.safe_load(f)
+				prithvi_config["pretrained_cfg"]["img_size"] = 336
+
+				if "_feed_timeloc" in params:
 					feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
-				else: 
+				else:
 					feed_timeloc = False
 				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
 				from lib.models.prithvi import PrithviSeg

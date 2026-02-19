@@ -21,7 +21,7 @@ from tqdm import tqdm
 import path_config
 
 from lib.models.lsp_transformer_pixels import TemporalTransformer
-from lib.utils import segmentation_loss_pixels, eval_data_loader, get_masks_paper, print_trainable_parameters, save_checkpoint,str2bool
+from lib.utils import segmentation_loss_pixels, segmentation_loss_pixels_mae, segmentation_loss, segmentation_loss_mae, eval_data_loader, get_masks_paper, print_trainable_parameters, save_checkpoint,str2bool
 
 from lib.utils import get_data_paths
 from lib.dataloaders.dataloaders_pixels import CycleDatasetPixels
@@ -34,12 +34,15 @@ def main():
 
 	# Parse the arguments - only core args needed for this model
 	parser = get_core_parser()
+	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
+	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 	args = parser.parse_args()
 
 	wandb_config = {
 		"learningrate": args.learning_rate,
 		"batch_size": args.batch_size,
 		"data_percentage": args.data_percentage,
+		"loss": args.loss,
 	}
 
 	args.model_size = "300m"
@@ -104,6 +107,10 @@ def main():
 	optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)
 	scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=5, verbose=True)
 
+	train_loss_fn = segmentation_loss_pixels_mae if args.loss == "mae" else segmentation_loss_pixels
+	eval_loss_fn = segmentation_loss_mae if args.loss == "mae" else segmentation_loss
+	print(f"Using loss function: {args.loss}")
+
 	best_acc_val=100
 	for epoch in range(config["training"]["n_iteration"]):
 
@@ -117,13 +124,13 @@ def main():
 			input = batch_data["image"]
 			mask = batch_data["gt_mask"]	
 
-			input=input.to(device)
+			# input=input.to(device)
 			mask=mask.to(device)
 
 			optimizer.zero_grad()
 			out=model(input, processing_images=False)
 
-			loss=segmentation_loss_pixels(mask,out,device=device)
+			loss=train_loss_fn(mask,out,device=device)
 			loss_i += loss.item() * input.size(0)  # Multiply by batch size
 
 			loss.backward()
@@ -137,8 +144,8 @@ def main():
 		epoch_loss_train = loss_i / len(train_dataloader.dataset)
 
 		# Validation Phase
-		acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"))
-		acc_dataset_test, _, epoch_loss_test = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"))
+		acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"), loss_fn=eval_loss_fn)
+		acc_dataset_test, _, epoch_loss_test = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"), loss_fn=eval_loss_fn)
 		
 		if args.logging: 
 			to_log = {} 
@@ -170,8 +177,8 @@ def main():
 
 	model.load_state_dict(torch.load(checkpoint)["model_state_dict"])
 
-	acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"))
-	acc_dataset_test, _, _ = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"))
+	acc_dataset_val, _, epoch_loss_val = eval_data_loader(val_dataloader, model, device, get_masks_paper("train"), loss_fn=eval_loss_fn)
+	acc_dataset_test, _, _ = eval_data_loader(test_dataloader, model, device, get_masks_paper("test"), loss_fn=eval_loss_fn)
 
 	if args.logging:
 		for idx in range(4): 
