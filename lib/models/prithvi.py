@@ -65,7 +65,7 @@ class PrithviBackbone(nn.Module):
 
 
 
-    def forward(self, data):
+    def forward(self, data, n_blocks=None):
         if isinstance(data, dict):
             chip = data.get("chip")
             temporal = data.get("temporal_coords")
@@ -74,11 +74,12 @@ class PrithviBackbone(nn.Module):
             chip = data
             temporal = None
             location = None
-        
+
         if self.prithvi_params["encoder_only"]:
-            latent = self.model.forward_features(chip,
-                                    temporal,
-                                    location)
+            if n_blocks is not None:
+                latent = self.model.forward_features_n_blocks(chip, temporal, location, n_blocks)
+            else:
+                latent = self.model.forward_features(chip, temporal, location)
         else:
             latent, mask, ids_restore = self.model.encoder(chip, temporal, location, 0.0)
             latent = self.model.decoder(latent,

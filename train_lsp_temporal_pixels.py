@@ -110,6 +110,7 @@ def main():
 		n_layers=args.n_layers,
 		nhead=args.nhead,
 		dropout=args.dropout,
+		temporal_reduce_factor=3,
 	)
 
 	print_trainable_parameters(model)
@@ -189,6 +190,10 @@ def main():
 
 		if acc_dataset_val_mean<best_acc_val:
 			save_checkpoint(model, optimizer, epoch, epoch_loss_train, epoch_loss_val, checkpoint)
+			# Save feature extractor separately for reuse in downstream models
+			checkpoint_feature = checkpoint.replace(".pth", "_feature.pth")
+			torch.save({"feature_extractor_state_dict": model.feature_extractor.state_dict()}, checkpoint_feature)
+			print(f"Feature extractor checkpoint saved at {checkpoint_feature}")
 			best_acc_val=acc_dataset_val_mean
 
 	model.load_state_dict(torch.load(checkpoint)["model_state_dict"])

@@ -97,10 +97,14 @@ class SinusoidalPositionalEncoding(nn.Module):
         return x + self.pe[:, :x.size(1), :]
 
 
-# ========================= Unified Model =========================
+# ========================= Feature Extractor =========================
 
-class TemporalPixelModel(nn.Module):
-    """Unified per-pixel temporal model with interchangeable temporal blocks.
+class TemporalFeatureExtractor(nn.Module):
+    """Reusable per-pixel temporal feature extractor.
+
+    Processes raw (N, T=12, C=6) pixel time series into compact
+    seasonal features (N, T_out, emb_dim) via temporal convolution
+    and temporal reduction.
 
     Variants:
         "se"          — SE temporal attention (pools features, weights timesteps)
@@ -109,30 +113,33 @@ class TemporalPixelModel(nn.Module):
         "transformer" — Full self-attention over timesteps
 
     Architecture:
-        input (N, T, C=6)
-        -> band projection (6 -> emb_dim)
+        input (N, T=12, C=6)
+        -> band projection (C -> emb_dim)
         -> positional encoding
         -> N temporal blocks with residual + LayerNorm
-        -> mean pool over T
-        -> dropout -> output projection (emb_dim -> num_classes)
+        -> temporal reduction conv1d(k=3, stride=3): T=12 -> T_out=4
+        -> dropout
+        -> output (N, T_out, emb_dim)
     """
 
     VARIANTS = ("se", "conv1", "conv3", "transformer")
 
     def __init__(self,
-                 variant: str = "se",
+                 variant: str = "conv3",
                  input_channels: int = 6,
                  seq_len: int = 12,
-                 num_classes: int = 4,
-                 emb_dim: int = 32,
-                 n_layers: int = 3,
+                 emb_dim: int = 128,
+                 n_layers: int = 4,
                  nhead: int = 4,
-                 dropout: float = 0.1):
+                 dropout: float = 0.1,
+                 temporal_reduce_factor: int = 3):
         super().__init__()
         assert variant in self.VARIANTS, f"variant must be one of {self.VARIANTS}, got '{variant}'"
 
         self.variant = variant
         self.seq_len = seq_len
+        self.emb_dim = emb_dim
+        self.seq_len_out = seq_len // temporal_reduce_factor
 
         # Band projection
         self.input_proj = nn.Linear(input_channels, emb_dim, bias=False)
@@ -142,8 +149,6 @@ class TemporalPixelModel(nn.Module):
 
         # Temporal blocks
         if variant == "transformer":
-            # Transformer uses nn.TransformerEncoder internally (handles its own
-            # residual + norm), so we create one block with all layers inside.
             self.transformer = TransformerTemporalBlock(emb_dim, nhead, n_layers, dropout)
         else:
             self.blocks = nn.ModuleList()
@@ -157,16 +162,21 @@ class TemporalPixelModel(nn.Module):
                     self.blocks.append(Conv1DTemporalBlock(emb_dim, kernel_size=3))
                 self.layer_norms.append(nn.LayerNorm(emb_dim))
 
-        # Output
+        # Temporal reduction: T=12 -> T_out=4
+        self.temporal_reduce = nn.Conv1d(
+            emb_dim, emb_dim,
+            kernel_size=temporal_reduce_factor,
+            stride=temporal_reduce_factor,
+        )
+
         self.dropout = nn.Dropout(dropout)
-        self.output_proj = nn.Linear(emb_dim, num_classes)
 
         total_params = sum(p.numel() for p in self.parameters())
-        print(f"TemporalPixelModel(variant={variant}, emb_dim={emb_dim}, "
-              f"n_layers={n_layers}) — {total_params:,} params")
+        print(f"TemporalFeatureExtractor(variant={variant}, emb_dim={emb_dim}, "
+              f"n_layers={n_layers}, {seq_len}->{self.seq_len_out}) — {total_params:,} params")
 
-    def _forward_core(self, x):
-        """Core forward pass on (N, T, C) input, returns (N, num_classes)."""
+    def forward(self, x):
+        """Forward pass on (N, T, C) input, returns (N, T_out, emb_dim)."""
         # Band projection + positional encoding
         x = self.input_proj(x)           # (N, T, emb_dim)
         x = self.pos_enc(x)
@@ -178,9 +188,62 @@ class TemporalPixelModel(nn.Module):
             for block, ln in zip(self.blocks, self.layer_norms):
                 x = ln(x + block(x))     # residual + post-norm
 
-        # Pool over T and predict
-        x = x.mean(dim=1)               # (N, emb_dim)
+        # Temporal reduction: (N, T, emb_dim) -> (N, T_out, emb_dim)
+        x = x.transpose(1, 2)           # (N, emb_dim, T)
+        x = self.temporal_reduce(x)      # (N, emb_dim, T_out)
+        x = x.transpose(1, 2)           # (N, T_out, emb_dim)
+
         x = self.dropout(x)
+        return x
+
+
+# ========================= Unified Model =========================
+
+class TemporalPixelModel(nn.Module):
+    """Unified per-pixel temporal model with interchangeable temporal blocks.
+
+    Wraps TemporalFeatureExtractor with a prediction head.
+
+    Architecture:
+        input (N, T=12, C=6)
+        -> TemporalFeatureExtractor -> (N, T_out=4, emb_dim)
+        -> mean pool over T_out
+        -> output projection (emb_dim -> num_classes)
+    """
+
+    def __init__(self,
+                 variant: str = "conv3",
+                 input_channels: int = 6,
+                 seq_len: int = 12,
+                 num_classes: int = 4,
+                 emb_dim: int = 128,
+                 n_layers: int = 4,
+                 nhead: int = 4,
+                 dropout: float = 0.1,
+                 temporal_reduce_factor: int = 3):
+        super().__init__()
+
+        self.feature_extractor = TemporalFeatureExtractor(
+            variant=variant,
+            input_channels=input_channels,
+            seq_len=seq_len,
+            emb_dim=emb_dim,
+            n_layers=n_layers,
+            nhead=nhead,
+            dropout=dropout,
+            temporal_reduce_factor=temporal_reduce_factor,
+        )
+
+        self.output_proj = nn.Linear(emb_dim, num_classes)
+        self.num_classes = num_classes
+
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"TemporalPixelModel — {total_params:,} total params")
+
+    def _forward_core(self, x):
+        """Core forward pass on (N, T, C) input, returns (N, num_classes)."""
+        x = self.feature_extractor(x)    # (N, T_out, emb_dim)
+        x = x.mean(dim=1)               # (N, emb_dim)
         x = self.output_proj(x)          # (N, num_classes)
         return x
 

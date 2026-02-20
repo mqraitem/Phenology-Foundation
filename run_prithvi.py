@@ -13,85 +13,30 @@ records_dir = "records"
 # quit()
 
 
-# # ##############################################################
-# # # * Prithvi Pretrained Blowup Final Improved No Shuffle
-# # ###############################################################
-# load_checkpoint = True
-# for feed_timeloc in [False]:
-#     for batch_size in [2]:
-#         for data_percentage in [1.0]:
-#             for use_config_normalization in [True]:
-#                 for n_temporal_layers in [8]:
-#                     for c_per_t, hidden_dim in [(8, 768)]:
-#                         group_name = f"prithvi_pretrained_blowup_final3_improved_noshuffle"
-#                         for temporal_attention in [False, True]:
-#                             for separate_heads in [False, True]:
-#                                 for learning_rate in [0.00001]:
-                                    
-#                                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_cpert-{c_per_t}_hiddendim-{hidden_dim}_ntemporallayers-{n_temporal_layers}"
-#                                     name += f"_separate_heads-{separate_heads}_temporal_attention-{temporal_attention}"
-#                                     if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
-#                                         file_content = open(f"{records_dir}/{name}", "r").readlines()
-#                                         last_line = file_content[-1]
-#                                         if "wandb: Find logs" in last_line: 
-#                                             continue
-
-#                                     command = f"qsub -v args=' --temporal_attention {temporal_attention} --separate_heads {separate_heads} --n_temporal_layers {n_temporal_layers} --hidden_dim {hidden_dim} --c_per_t {c_per_t} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_blowup_improved_noshuffle.sh"
-#                                     os.system(command)
-# # # ###############################################################
-
 
 # ###############################################################
-# # * Prithvi Pretrained Blowup Final HLS
+# # * Prithvi Pretrained Blowup Final Combined
 # ###############################################################
 load_checkpoint = True
 for feed_timeloc in [False]:
-    for batch_size in [2]:
+    for batch_size in [1,2]:
         for data_percentage in [1.0]:
-            for use_config_normalization in [True]:
-                for n_temporal_layers in [4]:
-                    for c_per_t, hidden_dim in [(16, 768), (16, 512)]:
-                        group_name = f"prithvi_pretrained_blowup_hls_final3"
-                        for learning_rate in [0.00001]:
-                            
-                            name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_cpert-{c_per_t}_hiddendim-{hidden_dim}_ntemporallayers-{n_temporal_layers}"
-                            if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
-                                file_content = open(f"{records_dir}/{name}", "r").readlines()
-                                last_line = file_content[-1]
-                                if "wandb: Find logs" in last_line: 
-                                    continue
+            for use_config_normalization in [False]:
+                for load_feature_checkpoint in [False, True]:
+                    group_name = f"prithvi_pretrained_seasonal"
+                    for learning_rate in [0.00001, 0.0001]:
+                        
+                        name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_load_feature_checkpoint-{load_feature_checkpoint}"
+                        if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
+                            file_content = open(f"{records_dir}/{name}", "r").readlines()
+                            last_line = file_content[-1]
+                            if "wandb: Find logs" in last_line: 
+                                continue
 
-                            command = f"qsub -v args=' --n_temporal_layers {n_temporal_layers} --hidden_dim {hidden_dim} --c_per_t {c_per_t} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_blowup_hls.sh"
-                            os.system(command)
+                        command = f"qsub -v args=' --load_feature_checkpoint {load_feature_checkpoint} --wandb_name {name} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_seasonal.sh"
+                        os.system(command)
 # # ###############################################################
 
-
-# # ###############################################################
-# # # * Prithvi Pretrained Blowup Final Improved
-# # ###############################################################
-# load_checkpoint = True
-# for feed_timeloc in [False]:
-#     for batch_size in [2]:
-#         for data_percentage in [1.0]:
-#             for use_config_normalization in [True]:
-#                 for n_temporal_layers in [8]:
-#                     for c_per_t, hidden_dim in [(8, 768)]:
-#                         group_name = f"prithvi_pretrained_blowup_final3_improved"
-#                         for temporal_attention in [False, True]:
-#                             for separate_heads in [False, True]:
-#                                 for learning_rate in [0.00001]:
-                                    
-#                                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_cpert-{c_per_t}_hiddendim-{hidden_dim}_ntemporallayers-{n_temporal_layers}"
-#                                     name += f"_separate_heads-{separate_heads}_temporal_attention-{temporal_attention}"
-#                                     if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
-#                                         file_content = open(f"{records_dir}/{name}", "r").readlines()
-#                                         last_line = file_content[-1]
-#                                         if "wandb: Find logs" in last_line: 
-#                                             continue
-
-#                                     command = f"qsub -v args=' --temporal_attention {temporal_attention} --separate_heads {separate_heads} --n_temporal_layers {n_temporal_layers} --hidden_dim {hidden_dim} --c_per_t {c_per_t} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_blowup_improved.sh"
-#                                     os.system(command)
-# # # ###############################################################
 
 
 # # ###############################################################

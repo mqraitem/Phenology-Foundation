@@ -28,8 +28,8 @@ def main():
 
 	for model_name in model_names:
 
-		# if "pretrained_final" not in model_name:
-		# 	continue
+		if "shallow_transformer_pixels_mae" not in model_name:
+			continue
 
 		data_percentage = model_name.split("_")[-1]
 
@@ -130,20 +130,6 @@ def main():
 			data_loader.dataset.set_feed_timeloc(feed_timeloc)
 			from lib.models.prithvi_blowup import PrithviSegBlowup
 			model = PrithviSegBlowup(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", c_per_t=c_per_t, hidden_dim=hidden_dim, feed_timeloc=feed_timeloc, n_temporal_layers = n_temporal_layers)
-
-		elif "upsample" in model_name:
-
-			with open(f'configs/prithvi_300m.yaml', 'r') as f:
-				prithvi_config = yaml.safe_load(f)
-			prithvi_config["pretrained_cfg"]["img_size"] = 336
-
-			if "_feed_timeloc" in best_param:
-				feed_timeloc = str2bool(best_param.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
-			else:
-				feed_timeloc = False
-			data_loader.dataset.set_feed_timeloc(feed_timeloc)
-			from lib.models.prithvi_upsample import PrithviSegUpsample
-			model = PrithviSegUpsample(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", feed_timeloc=feed_timeloc)
 
 		elif "simple" in model_name:
 

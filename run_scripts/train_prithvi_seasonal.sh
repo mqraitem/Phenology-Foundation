@@ -12,4 +12,4 @@ export PATH=/projectnb/ivc-ml/mqraitem/miniconda3/bin:$PATH
 source activate geo
 
 # Run your commands
-python train_prithvi_blowup_improved_noshuffle.py $args
+python train_prithvi_seasonal.py $args

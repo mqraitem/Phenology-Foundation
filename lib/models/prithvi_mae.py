@@ -425,22 +425,20 @@ class PrithviViT(nn.Module):
 
         return x, mask, ids_restore
 
-    def forward_features(
+    def _prepare_tokens(
         self,
         x: torch.Tensor,
         temporal_coords: None | torch.Tensor = None,
         location_coords: None | torch.Tensor = None,
-    ) -> list[torch.Tensor]:
+    ) -> torch.Tensor:
+        """Shared preamble: patch embed, pos embed, coords, cls token."""
         if len(x.shape) == 4 and self.patch_embed.input_size[0] == 1:
-            # add time dim
             x = x.unsqueeze(2)
         sample_shape = x.shape[-3:]
 
-        # embed patches
         x = self.patch_embed(x)
 
         pos_embed = self.interpolate_pos_encoding(sample_shape)
-        # add pos embed w/o cls token
         x = x + pos_embed[:, 1:, :]
 
         if self.temporal_encoding and temporal_coords is not None:
@@ -451,19 +449,38 @@ class PrithviViT(nn.Module):
             location_encoding = self.location_embed_enc(location_coords)
             x = x + location_encoding
 
-        # append cls token
         cls_token = self.cls_token + pos_embed[:, :1, :]
         cls_tokens = cls_token.expand(x.shape[0], -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
+        return x
 
-        # apply Transformer blocks
-        # out = []
+    def forward_features(
+        self,
+        x: torch.Tensor,
+        temporal_coords: None | torch.Tensor = None,
+        location_coords: None | torch.Tensor = None,
+    ) -> torch.Tensor:
+        x = self._prepare_tokens(x, temporal_coords, location_coords)
         for block in self.blocks:
             x = block(x)
-            # out.append(x.clone())
-
         x = self.norm(x)
-        # out[-1] = x
+        return x
+
+    def forward_features_n_blocks(
+        self,
+        x: torch.Tensor,
+        temporal_coords: None | torch.Tensor = None,
+        location_coords: None | torch.Tensor = None,
+        n_blocks: int = None,
+    ) -> torch.Tensor:
+        """Run only the first n_blocks transformer layers (out of self.blocks).
+        If n_blocks is None, runs all blocks (same as forward_features).
+        """
+        x = self._prepare_tokens(x, temporal_coords, location_coords)
+        blocks = self.blocks[:n_blocks] if n_blocks is not None else self.blocks
+        for block in blocks:
+            x = block(x)
+        x = self.norm(x)
         return x
 
     def prepare_features_for_image_model(self, features: list[torch.Tensor]) -> list[torch.Tensor]:
@@ -761,6 +778,15 @@ class PrithviMAE(nn.Module):
         x: torch.Tensor,
         temporal_coords: None | torch.Tensor = None,
         location_coords: None | torch.Tensor = None,
-    ) -> list[torch.Tensor]:
+    ) -> torch.Tensor:
         return self.encoder.forward_features(x, temporal_coords, location_coords)
+
+    def forward_features_n_blocks(
+        self,
+        x: torch.Tensor,
+        temporal_coords: None | torch.Tensor = None,
+        location_coords: None | torch.Tensor = None,
+        n_blocks: int = None,
+    ) -> torch.Tensor:
+        return self.encoder.forward_features_n_blocks(x, temporal_coords, location_coords, n_blocks)
 
