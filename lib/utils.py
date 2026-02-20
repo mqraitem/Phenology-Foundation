@@ -194,7 +194,7 @@ def segmentation_loss_pixels_mae(targets, preds, device, ignore_index=-1):
 
 def segmentation_loss(mask, pred, device, ignore_index=-1):
 	mask = mask.float()  # Convert mask to float for regression loss
-	
+
 	criterion = nn.MSELoss(reduction="sum").to(device)
 
 	loss = 0
@@ -202,15 +202,12 @@ def segmentation_loss(mask, pred, device, ignore_index=-1):
 	total_valid_pixels = 0  # Counter for valid pixels
 
 	for idx in range(num_channels):
-		# Get valid mask (excluding ignore_index)
 		valid_mask = mask[:, idx] != ignore_index
 
 		if valid_mask.sum() > 0:  # Ensure there are valid pixels to compute loss
 
 			valid_pred = pred[:, idx][valid_mask]  # Apply mask to predictions
 			valid_target = mask[:, idx][valid_mask]  # Apply mask to ground truth
-
-			valid_target = valid_target 
 
 			loss += criterion(valid_pred, valid_target)
 			total_valid_pixels += valid_mask.sum().item()

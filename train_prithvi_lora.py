@@ -67,7 +67,7 @@ def main():
 
 	wandb_name = args.wandb_name
 
-	with open(f'configs/prithvi_{args.model_size}.yaml', 'r') as f:
+	with open(f'configs/phenology_mae_{args.model_size}.yaml', 'r') as f:
 		config = yaml.safe_load(f)
 
 	config["training"]["n_iteration"] = 200

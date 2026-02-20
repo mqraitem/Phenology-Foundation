@@ -44,7 +44,7 @@ def main():
 	                   help="Whether to use weighted sampler for imbalanced data")
 	parser.add_argument("--feed_timeloc", type=str2bool, default=False,
 	                   help="Whether to feed time/loc coords")
-	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
+	parser.add_argument("--loss", type=str, default="mae", choices=["mse", "mae"],
 	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 
 	args = parser.parse_args()
@@ -74,7 +74,7 @@ def main():
 
 	if args.logging:
 		wandb.init(
-				project=f"phenology_{args.data_percentage}",
+				project=f"phenology_mae_{args.data_percentage}",
 				group=group_name,
 				config = wandb_config,
 				name=wandb_name,

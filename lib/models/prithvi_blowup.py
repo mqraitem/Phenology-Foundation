@@ -49,7 +49,7 @@ class PrithviSegBlowup(nn.Module):
             pixel_out = c_per_t * patch_h * patch_h
             self.token_proj = nn.Sequential(
                 nn.Conv2d(self.embed_dim, pixel_out, kernel_size=1, bias=False),
-                nn.BatchNorm2d(pixel_out),
+                nn.GroupNorm(min(32, pixel_out), pixel_out),
                 nn.GELU(),
             )
 
@@ -62,7 +62,7 @@ class PrithviSegBlowup(nn.Module):
             for _ in range(n_temporal_layers):
                 layers.extend([
                     nn.Conv2d(in_ch, hidden_dim, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(hidden_dim),
+                    nn.GroupNorm(min(32, hidden_dim), hidden_dim),
                     nn.GELU(),
                 ])
                 in_ch = hidden_dim
@@ -109,7 +109,7 @@ class PrithviSegBlowup(nn.Module):
         x = self.temporal_conv(x)               # (B, n_classes, 336, 336)
         # print(x.shape)
         # quit()
-        x = torch.sigmoid(x)
+        # x = torch.sigmoid(x)
 
         return x
 

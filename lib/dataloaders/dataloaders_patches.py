@@ -130,9 +130,9 @@ class CycleDatasetPatches(Dataset):
 		)
 
 	def process_gt(self,gt):
-		gt[gt == 32767] = -1
-		gt[gt < 0] = -1
+		invalid = (gt == 32767) | (gt < 0)
 		gt = day_of_year_to_decimal_month(gt)
+		gt[invalid] = -1
 
 		return gt.astype(np.float32)
 

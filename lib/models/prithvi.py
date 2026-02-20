@@ -65,7 +65,7 @@ class PrithviBackbone(nn.Module):
 
 
 
-    def forward(self, data, n_blocks=None):
+    def forward(self, data):
         if isinstance(data, dict):
             chip = data.get("chip")
             temporal = data.get("temporal_coords")
@@ -76,10 +76,7 @@ class PrithviBackbone(nn.Module):
             location = None
 
         if self.prithvi_params["encoder_only"]:
-            if n_blocks is not None:
-                latent = self.model.forward_features_n_blocks(chip, temporal, location, n_blocks)
-            else:
-                latent = self.model.forward_features(chip, temporal, location)
+            latent = self.model.forward_features(chip, temporal, location)
         else:
             latent, mask, ids_restore = self.model.encoder(chip, temporal, location, 0.0)
             latent = self.model.decoder(latent,
@@ -101,11 +98,11 @@ class Upscaler(nn.Module):
                 out_channels=out_ch,
                 kernel_size=2,
                 stride=2),
-            nn.BatchNorm2d(out_ch),
+            nn.GroupNorm(min(32, out_ch), out_ch),
             nn.GELU(),
             nn.Dropout(0.1) if dropout else nn.Identity(),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(out_ch),
+            nn.GroupNorm(min(32, out_ch), out_ch),
             nn.ReLU(inplace=True))
 
         self.upscale_blocks = nn.Sequential(
@@ -154,7 +151,7 @@ class PrithviSeg(nn.Module):
         x = self.backbone(x)
         x = self.head(x)
         x = x.view(batch_size, self.n_classes, x.size(2), x.size(3))   
-        x = torch.sigmoid(x)
+        # x = torch.sigmoid(x)
         return x
 
     def forward_features(self, x):

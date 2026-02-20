@@ -2,53 +2,49 @@ import os
 
 records_dir = "records"
 
-# for name in os.listdir(records_dir):
-#     file_content = open(f"{records_dir}/{name}", "r", encoding='latin-1').readlines()
-#     last_line = file_content[-1]
-#     if "wandb: Find logs" in last_line: 
-#         continue
+for name in os.listdir(records_dir):
+    file_content = open(f"{records_dir}/{name}", "r", encoding='latin-1').readlines()
+    last_line = file_content[-1]
+    if "wandb: Find logs" in last_line: 
+        continue
 
-#     print(name)
-
-# quit()
-
+    print(name)
 
 
 # ###############################################################
-# # * Prithvi Pretrained Blowup Final Combined
+# # * Prithvi Pretrained Conv3d 
 # ###############################################################
 load_checkpoint = True
 for feed_timeloc in [False]:
-    for batch_size in [1,2]:
+    for batch_size in [2]:
         for data_percentage in [1.0]:
-            for use_config_normalization in [False]:
-                for load_feature_checkpoint in [False, True]:
-                    group_name = f"prithvi_pretrained_seasonal"
-                    for learning_rate in [0.00001, 0.0001]:
+            for use_config_normalization in [True, False]:
+                group_name = f"prithvi_pretrained_conv3d"
+                for learning_rate in [0.00001]:
+                    # for n_layers, hidden_dim in [[4, 768]]:
+                    for n_layers, hidden_dim in [[1, 768], [1, 128], [4, 128]]:
                         
-                        name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_load_feature_checkpoint-{load_feature_checkpoint}"
+                        name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_loss-mae_n_layers-{n_layers}_hidden_dim-{hidden_dim}"
                         if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
                             file_content = open(f"{records_dir}/{name}", "r").readlines()
                             last_line = file_content[-1]
                             if "wandb: Find logs" in last_line: 
                                 continue
 
-                        command = f"qsub -v args=' --load_feature_checkpoint {load_feature_checkpoint} --wandb_name {name} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_seasonal.sh"
+                        command = f"qsub -v args=' --hidden_dim {hidden_dim} --n_layers {n_layers} --loss mae --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_conv3d.sh"
                         os.system(command)
 # # ###############################################################
 
-
-
 # # ###############################################################
-# # # * Shallow Transformer final
+# # # * Shallow Transformer
 # # ###############################################################
-# for learning_rate in [0.0001, 0.00001, 0.000001]:
-#     for batch_size in [264, 512]:
+# for learning_rate in [0.00001]:
+#     for batch_size in [512]:
 #         for data_percentage in [1.0]:
                 
-#             group_name = f"shallow_transformer_pixels_mae"
+#             group_name = f"shallow_transformer_pixels"
 
-#             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}"
+#             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_loss-mae"
             
 #             if os.path.exists(f"{records_dir}/{name}"):
 #                 file_content = open(f"{records_dir}/{name}", "r").readlines()
@@ -56,79 +52,47 @@ for feed_timeloc in [False]:
 #                 if "wandb: Find logs" in last_line: 
 #                     continue
 
-#                 # if "Disk quota exceeded" not in last_line:
-#                 #     continue
-#                 print("haha: ", name)
 
 #             command = f"qsub -v args='--loss mae --wandb_name {name}   --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_lsp_pixels.sh"
 #             os.system(command)
 # # # ###############################################################
 
 # # ###############################################################
-# # # * Prithvi Pretrained Blowup Final
+# # # * Prithvi Pretrained Upshuffle
 # # ###############################################################
 # load_checkpoint = True
 # for feed_timeloc in [False]:
 #     for batch_size in [2]:
 #         for data_percentage in [1.0]:
-#             for use_config_normalization in [True]:
-#                 for n_temporal_layers in [12, 16]:
-#                     # for c_per_t, hidden_dim in [(8, 768), (16, 768), (8, 1024), (16, 1024)]:
-#                     # for c_per_t, hidden_dim in [(8, 128), (8, 256), (4, 128)]:
-#                     # for c_per_t, hidden_dim in [(8, 512), (4, 512)]:
+#             for use_config_normalization in [True, False]:
+#                 for n_temporal_layers in [4]:
 #                     for c_per_t, hidden_dim in [(8, 768)]:
-#                         group_name = f"prithvi_pretrained_blowup_final3"
+#                         group_name = f"prithvi_pretrained_upshuffle"
 #                         for learning_rate in [0.00001]:
                             
-#                             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_cpert-{c_per_t}_hiddendim-{hidden_dim}_ntemporallayers-{n_temporal_layers}"
+#                             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_cpert-{c_per_t}_hiddendim-{hidden_dim}_ntemporallayers-{n_temporal_layers}_loss-mae"
 #                             if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
 #                                 file_content = open(f"{records_dir}/{name}", "r").readlines()
 #                                 last_line = file_content[-1]
 #                                 if "wandb: Find logs" in last_line: 
 #                                     continue
 
-#                             command = f"qsub -v args=' --n_temporal_layers {n_temporal_layers} --hidden_dim {hidden_dim} --c_per_t {c_per_t} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_blowup.sh"
+#                             command = f"qsub -v args=' --loss mae --n_temporal_layers {n_temporal_layers} --hidden_dim {hidden_dim} --c_per_t {c_per_t} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_upshuffle.sh"
 #                             os.system(command)
 # # # ###############################################################
 
 
-# # ###############################################################
-# # # * Prithvi Pretrained Simple Final
-# # ###############################################################
-# load_checkpoint = True
-# for feed_timeloc in [False]:
-#     for batch_size in [2]:
-#         for data_percentage in [1.0]:
-#             for use_config_normalization in [True]:
-#                 for proj_dim in ["512", "768", "1600", "3200", "6400"]:
-#                     group_name = f"prithvi_pretrained_simple_final"
-#                     for learning_rate in [0.00001]:
-                        
-#                         name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_projdim-{proj_dim}"
-#                         if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
-#                             file_content = open(f"{records_dir}/{name}", "r").readlines()
-#                             last_line = file_content[-1]
-#                             if "wandb: Find logs" in last_line: 
-#                                 continue
-
-#                         command = f"qsub -v args=' --proj_dim {proj_dim} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_simple.sh"
-#                         os.system(command)
-# # # ###############################################################
-
-
-
-# # ###############################################################
-# # # * Prithvi Pretrained Final mae
+# # # * Prithvi Pretrained 
 # # ###############################################################
 # load_checkpoint = True
 # for feed_timeloc in [False]:
 #     for batch_size in [2]:
 #         for data_percentage in [1.0]:
-#             for use_config_normalization in [True]:
-#                 group_name = f"prithvi_pretrained_mae_final"
+#             for use_config_normalization in [True, False]:
+#                 group_name = f"prithvi_pretrained"
 #                 for learning_rate in [0.00001]:
                     
-#                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}"
+#                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_loss-mae"
 #                     if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
 #                         file_content = open(f"{records_dir}/{name}", "r").readlines()
 #                         last_line = file_content[-1]
@@ -140,105 +104,79 @@ for feed_timeloc in [False]:
 # # # ###############################################################
 
 
+
+
 # # ###############################################################
-# # # * Prithvi Pretrained Final
+# # # * Prithvi Random Conv3d 
 # # ###############################################################
 # load_checkpoint = True
 # for feed_timeloc in [False]:
 #     for batch_size in [2]:
-#         for data_percentage in [0.05, 0.2, 0.4, 0.6, 0.8]:
-#         # for data_percentage in [1.0]:
-#             for use_config_normalization in [True]:
-#                 group_name = f"prithvi_pretrained_final"
-#                 # for learning_rate in [0.0001, 0.00001, 0.000001]:
+#         for data_percentage in [1.0]:
+#             for use_config_normalization in [False]:
+#                 group_name = f"prithvi_random_conv3d"
+#                 for learning_rate in [0.00001]:
+#                     for n_layers, hidden_dim in [[4, 768]]:
+                        
+#                         name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_loss-mae_n_layers-{n_layers}_hidden_dim-{hidden_dim}"
+#                         if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
+#                             file_content = open(f"{records_dir}/{name}", "r").readlines()
+#                             last_line = file_content[-1]
+#                             if "wandb: Find logs" in last_line: 
+#                                 continue
+
+#                         command = f"qsub -v args=' --hidden_dim {hidden_dim} --n_layers {n_layers} --loss mae --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_conv3d.sh"
+#                         os.system(command)
+# # # ###############################################################
+
+
+# # ###############################################################
+# # # * Prithvi Random Upshuffle
+# # ###############################################################
+# load_checkpoint = False
+# for feed_timeloc in [False]:
+#     for batch_size in [2]:
+#         for data_percentage in [1.0]:
+#             for use_config_normalization in [False]:
+#                 for n_temporal_layers in [4]:
+#                     for c_per_t, hidden_dim in [(8, 768)]:
+#                         group_name = f"prithvi_random_upshuffle"
+#                         for learning_rate in [0.00001]:
+                            
+#                             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_cpert-{c_per_t}_hiddendim-{hidden_dim}_ntemporallayers-{n_temporal_layers}_loss-mae"
+#                             if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
+#                                 file_content = open(f"{records_dir}/{name}", "r").readlines()
+#                                 last_line = file_content[-1]
+#                                 if "wandb: Find logs" in last_line: 
+#                                     continue
+
+#                             command = f"qsub -v args=' --loss mae --n_temporal_layers {n_temporal_layers} --hidden_dim {hidden_dim} --c_per_t {c_per_t} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_upshuffle.sh"
+#                             os.system(command)
+
+# # ###############################################################
+
+
+# # ###############################################################
+# # # * Prithvi Random 
+# # ###############################################################
+# load_checkpoint = False
+# for feed_timeloc in [False]:
+#     for batch_size in [2]:
+#         for data_percentage in [1.0]:
+#             for use_config_normalization in [False]:
+#                 group_name = f"prithvi_random"
 #                 for learning_rate in [0.00001]:
                     
-#                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}"
+#                     name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_loss-mae"
 #                     if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
 #                         file_content = open(f"{records_dir}/{name}", "r").readlines()
 #                         last_line = file_content[-1]
 #                         if "wandb: Find logs" in last_line: 
 #                             continue
 
-#                     command = f"qsub -v args='  --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi.sh"
+#                     command = f"qsub -v args='  --loss mae --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi.sh"
 #                     os.system(command)
 # # # ###############################################################
-
-
-# # ###############################################################
-# # # * Prithvi Random Final
-# # ###############################################################
-# load_checkpoint = False
-# for batch_size in [2]:
-#     for data_percentage in [1.0]:
-#         group_name = f"prithvi_random_final"
-        
-#         for learning_rate in [0.0001, 0.00001, 0.000001]:
-            
-#             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}"
-#             if os.path.exists(f"{records_dir}/{name}"):
-#                 file_content = open(f"{records_dir}/{name}", "r").readlines()
-#                 last_line = file_content[-1]
-#                 if "wandb: Find logs" in last_line: 
-#                     continue
-
-#             command = f"qsub -v args='  --wandb_name {name}  --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi.sh"
-#             os.system(command)
-# # ###############################################################
-
-# # # ###############################################################
-# # # # * Prithvi Pretrained LORA
-# # # ###############################################################
-
-# # # 8, 8
-# # # 16, 32
-# # # 64, 32
-# # # 32, 64
-
-# load_checkpoint = True
-# for batch_size in [2]:
-#     for data_percentage in [1.0]:
-#         group_name = f"prithvi_lora"
-        
-#         for learning_rate in [0.00001]:
-#             for r, alpha in [(8, 8), (16, 32), (64, 32), (32, 64)]:
-#                 name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_r-{r}_alpha-{alpha}"
-#                 if os.path.exists(f"{records_dir}/{name}"):
-#                     file_content = open(f"{records_dir}/{name}", "r").readlines()
-#                     last_line = file_content[-1]
-#                     if "wandb: Find logs" in last_line: 
-#                         continue
-
-#                 command = f"qsub -v args=' --wandb_name {name} --r {r} --alpha {alpha} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_lora.sh"
-#                 os.system(command)
-# # ###############################################################
-
-
-# # ###############################################################
-# # # * Shallow Transformer 
-# # ###############################################################
-# for learning_rate in [0.0001, 0.00001, 0.000001]:
-#     for batch_size in [264, 512]:
-#         for data_percentage in [1.0]:
-                
-#             group_name = f"shallow_transformer_pixels"
-
-#             name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}"
-            
-#             if os.path.exists(f"{records_dir}/{name}"):
-#                 file_content = open(f"{records_dir}/{name}", "r").readlines()
-#                 last_line = file_content[-1]
-#                 if "wandb: Find logs" in last_line: 
-#                     continue
-
-#                 # if "Disk quota exceeded" not in last_line:
-#                 #     continue
-#                 print("haha: ", name)
-
-#             command = f"qsub -v args='--wandb_name {name}   --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_lsp_pixels.sh"
-#             os.system(command)
-# # # ###############################################################
-
 
 
 # ###############################################################
@@ -262,29 +200,29 @@ for feed_timeloc in [False]:
 
 #                 command = f"qsub -v args=' --wandb_name {name}  --patch_size {patch_size} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name}  --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_lsp_patch.sh"
 #                 os.system(command)
+# ###############################################################
 
 
 
-
-
-# # # * Prithvi Pretrained Upsample Final
+# # ###############################################################
+# # # * Prithvi Pretrained Simple
 # # ###############################################################
 # load_checkpoint = True
 # for feed_timeloc in [False]:
 #     for batch_size in [2]:
 #         for data_percentage in [1.0]:
 #             for use_config_normalization in [True]:
-#                 for conv_k in [1, 3]:
-#                     group_name = f"prithvi_pretrained_upsample_final"
+#                 for proj_dim in ["512", "768", "1600", "3200", "6400"]:
+#                     group_name = f"prithvi_pretrained_simple_final"
 #                     for learning_rate in [0.00001]:
                         
-#                         name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_convk-{conv_k}"
+#                         name = f"{group_name}_lr-{learning_rate}_batch_size-{batch_size}_confignorm-{use_config_normalization}_feed_timeloc-{feed_timeloc}_projdim-{proj_dim}"
 #                         if os.path.exists(f"{records_dir}/{name}_{data_percentage}"):
 #                             file_content = open(f"{records_dir}/{name}", "r").readlines()
 #                             last_line = file_content[-1]
 #                             if "wandb: Find logs" in last_line: 
 #                                 continue
 
-#                         command = f"qsub -v args=' --conv_k {conv_k} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_upsample.sh"
+#                         command = f"qsub -v args=' --proj_dim {proj_dim} --wandb_name {name} --feed_timeloc {feed_timeloc} --data_percentage {data_percentage} --batch_size {batch_size} --group_name {group_name} --load_checkpoint {load_checkpoint} --logging True --learning_rate {learning_rate}'  -o {records_dir}/{name} run_scripts/train_prithvi_simple.sh"
 #                         os.system(command)
 # # # ###############################################################
