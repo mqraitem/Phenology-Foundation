@@ -1,0 +1,207 @@
+% Include in your preamble:
+%   \usepackage{tikz}
+%   \usetikzlibrary{positioning, arrows.meta, calc, decorations.pathreplacing}
+%   \usepackage{amsmath}
+%
+% Then use:  \input{figures/conv3d_architecture.tex}
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    >={Latex[length=2.5mm]},
+    arrow/.style={->, thick, color=black!50},
+    op/.style={
+        draw=#1!70!black, fill=#1!6, rounded corners=2pt,
+        font=\small\sffamily, align=center,
+        inner xsep=4pt, inner ysep=3pt, thick
+    },
+    op/.default={black!50},
+    dimlabel/.style={font=\footnotesize\ttfamily\color{black!55}, align=center},
+    toplabel/.style={font=\small\sffamily, align=center},
+    rowlabel/.style={font=\normalsize\sffamily\bfseries, align=left},
+]
+
+% ── Cuboid drawing command ──
+\newcommand{\cuboid}[7]{%
+  \pgfmathsetmacro{\hw}{#3/2}%
+  \pgfmathsetmacro{\hh}{#4/2}%
+  \pgfmathsetmacro{\dx}{#5*0.3}%
+  \pgfmathsetmacro{\dy}{#5*0.22}%
+  \fill[#6!30, draw=#7, thick]
+    ({#1-\hw+\dx},{#2-\hh+\dy}) -- ({#1+\hw+\dx},{#2-\hh+\dy}) --
+    ({#1+\hw+\dx},{#2+\hh+\dy}) -- ({#1-\hw+\dx},{#2+\hh+\dy}) -- cycle;
+  \fill[#6!45, draw=#7, thick]
+    ({#1+\hw},{#2-\hh}) -- ({#1+\hw+\dx},{#2-\hh+\dy}) --
+    ({#1+\hw+\dx},{#2+\hh+\dy}) -- ({#1+\hw},{#2+\hh}) -- cycle;
+  \fill[#6!35, draw=#7, thick]
+    ({#1-\hw},{#2+\hh}) -- ({#1+\hw},{#2+\hh}) --
+    ({#1+\hw+\dx},{#2+\hh+\dy}) -- ({#1-\hw+\dx},{#2+\hh+\dy}) -- cycle;
+  \fill[#6!15, draw=#7, thick]
+    ({#1-\hw},{#2-\hh}) -- ({#1+\hw},{#2-\hh}) --
+    ({#1+\hw},{#2+\hh}) -- ({#1-\hw},{#2+\hh}) -- cycle;
+}
+
+% ═══════════════════════════════════════
+%  Column positions (shared across rows)
+% ═══════════════════════════════════════
+\def\sp{3.0}
+\pgfmathsetmacro{\xLab}{-2.0}    % row label
+\pgfmathsetmacro{\xIn}{0.5}      % input
+\pgfmathsetmacro{\xEnc}{\xIn + \sp + 0.2}
+\pgfmathsetmacro{\xR}{\xEnc + \sp + 0.2}
+\pgfmathsetmacro{\xA}{\xR + \sp}
+\pgfmathsetmacro{\xB}{\xA + \sp - 0.2}
+\pgfmathsetmacro{\xC}{\xB + \sp - 0.2}
+\pgfmathsetmacro{\xD}{\xC + \sp - 0.2}
+\pgfmathsetmacro{\xF}{\xD + \sp - 0.1}
+\pgfmathsetmacro{\xO}{\xF + \sp - 0.3}
+
+% ═══════════════════════════════════════════════════════
+%  ROW 1: Prithvi-EO-V2  (y = 0)
+% ═══════════════════════════════════════════════════════
+\def\yA{0}
+
+% Row label
+\node[rowlabel] at (\xLab, \yA) {(a)};
+
+% INPUT
+\cuboid{\xIn}{\yA}{0.4}{2.6}{0.9}{green}{green!50!black}
+\node[toplabel, above] at ({\xIn+0.15}, \yA + 1.55) {Input};
+\node[dimlabel, below] at (\xIn, \yA - 1.5) {$6$\\[-1pt]$12 \times 336^2$};
+
+% ENCODER
+\draw[arrow] ({\xIn + 0.5}, \yA) -- ({\xEnc - 1.1}, \yA);
+\node[draw=blue!50!black, fill=blue!6, rounded corners=4pt,
+      minimum width=1.8cm, minimum height=2.8cm, thick,
+      font=\small\sffamily, align=center, text=blue!60!black]
+      at (\xEnc, \yA) {Prithvi\\EO-V2\\Encoder};
+
+% RESHAPE: (1024, 12, 21²)
+\draw[arrow] ({\xEnc + 1.05}, \yA) -- ({\xR - 0.85}, \yA);
+\cuboid{\xR}{\yA}{1.1}{0.6}{0.9}{violet}{violet!50!black}
+\node[dimlabel, below] at (\xR, \yA - 0.55) {$1024$\\[-1pt]$12 \times 21^2$};
+
+% BLOCK 1: (512, 12, 42²)
+\draw[arrow] ({\xR + 0.82}, \yA) -- ({\xA - 0.68}, \yA);
+\cuboid{\xA}{\yA}{0.9}{0.9}{0.9}{purple}{purple!50!black}
+\node[dimlabel, below] at (\xA, \yA - 0.7) {$512$\\[-1pt]$12 \times 42^2$};
+
+% BLOCK 2: (256, 12, 84²)
+\draw[arrow] ({\xA + 0.68}, \yA) -- ({\xB - 0.6}, \yA);
+\cuboid{\xB}{\yA}{0.7}{1.4}{0.9}{purple}{purple!50!black}
+\node[dimlabel, below] at (\xB, \yA - 0.95) {$256$\\[-1pt]$12 \times 84^2$};
+
+% BLOCK 3: (128, 12, 168²)
+\draw[arrow] ({\xB + 0.6}, \yA) -- ({\xC - 0.55}, \yA);
+\cuboid{\xC}{\yA}{0.55}{2.0}{0.9}{purple}{purple!50!black}
+\node[dimlabel, below] at (\xC, \yA - 1.25) {$128$\\[-1pt]$12 \times 168^2$};
+
+% BLOCK 4: (128, 12, 336²)
+\draw[arrow] ({\xC + 0.55}, \yA) -- ({\xD - 0.55}, \yA);
+\cuboid{\xD}{\yA}{0.55}{2.6}{0.9}{purple}{purple!50!black}
+\node[dimlabel, below] at (\xD, \yA - 1.5) {$128$\\[-1pt]$12 \times 336^2$};
+
+% FUSION
+\draw[arrow] ({\xD + 0.55}, \yA) -- ({\xF - 0.55}, \yA);
+\node[op={orange}, above=2pt] at ({(\xD + \xF)/2}, \yA + 0.15)
+    {\footnotesize Conv3d $\times N$};
+\cuboid{\xF}{\yA}{0.55}{2.6}{0.9}{orange}{orange!50!black}
+\node[dimlabel, below] at (\xF, \yA - 1.5) {$128$\\[-1pt]$12 \times 336^2$};
+
+% OUTPUT
+\draw[arrow] ({\xF + 0.55}, \yA) -- ({\xO - 0.3}, \yA);
+\node[op={red!70!black}, above=2pt] at ({(\xF + \xO)/2}, \yA + 0.15)
+    {\footnotesize $\overline{T}$\,,\;$1\!\times\!1$};
+\cuboid{\xO}{\yA}{0.14}{2.5}{0.0}{red}{red!40!black}
+\node[toplabel, above] at (\xO, \yA + 1.45) {Output};
+\node[dimlabel, below] at (\xO, \yA - 1.45) {$4$\\[-1pt]$330^2$};
+
+% Temporal axis annotation
+\draw[<->, thin, black!40]
+    ({\xIn + 0.2 + 0.9*0.3}, {\yA + 1.3 + 0.9*0.22})
+    -- ++(0.27, 0.2)
+    node[right, font=\footnotesize\sffamily\itshape, text=black!45] {$T$};
+
+% BRACES
+\def\brYA{-2.7}
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, purple!50]
+    ({\xR - 0.8}, \brYA) -- ({\xD + 0.8}, \brYA)
+    node[midway, below=6pt, font=\footnotesize\sffamily\bfseries, text=purple!65!black]
+    {3D Spatial Upsampling ($\times 4$ blocks)};
+
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, orange!60]
+    ({\xF - 0.75}, \brYA) -- ({\xO + 0.35}, \brYA)
+    node[midway, below=6pt, font=\footnotesize\sffamily\bfseries, text=orange!65!black]
+    {Temporal Fusion};
+
+% DETAIL BOXES
+\def\detYA{-4.1}
+\node[draw=purple!35, fill=purple!3, rounded corners=2pt, thick,
+      font=\footnotesize\sffamily, align=left, inner sep=5pt]
+      at ({(\xR + \xD)/2}, \detYA) {
+    \textbf{Each spatial block:}
+    ConvTranspose3d$(k\!=\!(1,2,2),\ s\!=\!(1,2,2))$
+    $\!\to\!$ GN $\!\to\!$ GELU $\!\to\!$ Conv3d$(k\!=\!3,\ \text{pad}\!=\!1)$
+    $\!\to\!$ GN $\!\to\!$ ReLU
+};
+
+\node[draw=orange!35, fill=orange!3, rounded corners=2pt, thick,
+      font=\footnotesize\sffamily, align=left, inner sep=5pt]
+      at ({(\xF + \xO)/2}, \detYA) {
+    \textbf{Fusion layer:}\\
+    Conv3d$(k\!=\!3,\ \text{pad}\!=\!1)$\\
+    $\to$ GN $\to$ ReLU
+};
+
+% ═══════════════════════════════════════════════════════
+%  DIVIDER
+% ═══════════════════════════════════════════════════════
+\def\divY{-5.5}
+\draw[black!20, thick] (\xLab, \divY) -- (\xO + 0.8, \divY);
+
+% ═══════════════════════════════════════════════════════
+%  ROW 2: Presto  (placeholder)
+% ═══════════════════════════════════════════════════════
+\def\yB{-8.0}
+
+\node[rowlabel] at (\xLab, \yB) {(b)};
+
+\node[draw=teal!50!black, fill=teal!6, rounded corners=4pt,
+      minimum width=1.8cm, minimum height=2.8cm, thick,
+      font=\small\sffamily, align=center, text=teal!60!black]
+      at (\xEnc, \yB) {Presto\\Encoder};
+
+\node[draw=black!25, dashed, rounded corners=6pt, thick,
+      minimum width=16cm, minimum height=3.2cm,
+      font=\normalsize\sffamily\itshape, text=black!35, align=center]
+      at ({(\xR + \xO)/2}, \yB) {Adaptation head to be added};
+
+% ═══════════════════════════════════════════════════════
+%  DIVIDER
+% ═══════════════════════════════════════════════════════
+\def\divYB{-10.5}
+\draw[black!20, thick] (\xLab, \divYB) -- (\xO + 0.8, \divYB);
+
+% ═══════════════════════════════════════════════════════
+%  ROW 3: OlmoEarth  (placeholder)
+% ═══════════════════════════════════════════════════════
+\def\yC{-13.0}
+
+\node[rowlabel] at (\xLab, \yC) {(c)};
+
+\node[draw=brown!50!black, fill=brown!6, rounded corners=4pt,
+      minimum width=1.8cm, minimum height=2.8cm, thick,
+      font=\small\sffamily, align=center, text=brown!60!black]
+      at (\xEnc, \yC) {OlmoEarth\\Encoder};
+
+\node[draw=black!25, dashed, rounded corners=6pt, thick,
+      minimum width=16cm, minimum height=3.2cm,
+      font=\normalsize\sffamily\itshape, text=black!35, align=center]
+      at ({(\xR + \xO)/2}, \yC) {Adaptation head to be added};
+
+\end{tikzpicture}%
+}% end resizebox
+\caption{Downstream adaptation architectures for phenology prediction. (a)~The Prithvi-EO-V2 encoder extracts spatio-temporal features, which are spatially upsampled through four 3D transposed convolution blocks while preserving the temporal dimension~$T$. A 3D convolutional fusion head mixes temporal information, followed by mean pooling over~$T$ and a $1\!\times\!1$ projection to predict four phenological transition dates per pixel. (b)~Presto adaptation (to be added). (c)~OlmoEarth adaptation (to be added).}
+\label{fig:architecture}
+\end{figure*}

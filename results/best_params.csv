@@ -1,0 +1,4 @@
+Model Name,Best Param
+prithvi_pretrained_conv3d_1.0,prithvi_pretrained_conv3d_lr-1e-05_batch_size-2_confignorm-True_feed_timeloc-False_loss-mae_n_layers-4_hidden_dim-768.pth
+prithvi_random_conv3d_1.0,prithvi_random_conv3d_lr-1e-05_batch_size-2_confignorm-False_feed_timeloc-False_loss-mae_n_layers-4_hidden_dim-768.pth
+shallow_transformer_pixels_1.0,shallow_transformer_pixels_lr-1e-05_batch_size-512_loss-mae.pth

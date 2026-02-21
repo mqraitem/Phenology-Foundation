@@ -79,28 +79,16 @@ def main():
 				}
 				model = PrithviSegLora(prithvi_config["pretrained_cfg"], lora_dict, None, True, n_classes=4, model_size="300m", r=r_param, alpha=alpha_param)
 
-			elif "miniprithvi" in group:
-				from lib.models.prithvi_mini import TinyPrithviSeg
-				model = TinyPrithviSeg(
-					in_ch=6,
-					T=12,                 # match baseline seq_len
-					img_size=336,
-					patch=(1,16,16),      # keeps tokens small; 12×21×21 tokens
-					d_model=132,           # modest width
-					depth=3,              # 3 encoder layers
-					nhead=4,              # 80 / 4 = 20 per head
-					num_classes=4,
-					up_depth=4,           # /16 -> /8 -> /4 -> /2 -> /1
-				)
 
 			elif "shallow_transformer_patch" in group:
 				from lib.models.lsp_transformer_patches import TemporalTransformerPerPatch
 				patch_size = int(group.split("patch")[1].split("_")[0])
+				d_model = 128 * patch_size
 				model = TemporalTransformerPerPatch(
 					input_channels=6,
 					seq_len=12,
 					num_classes=4,
-					d_model=128,
+					d_model=d_model,
 					nhead=4,
 					num_layers=3,
 					dropout=0.1,
@@ -119,36 +107,7 @@ def main():
 					dropout=0.1
 				)
 
-			elif "blowup" in group:
-
-				with open(f'configs/prithvi_300m.yaml', 'r') as f:
-					prithvi_config = yaml.safe_load(f)
-				prithvi_config["pretrained_cfg"]["img_size"] = 336
-
-				c_per_t = int(params.split("_cpert-")[1].split("_")[0].replace(".pth", ""))
-				hidden_dim = int(params.split("_hiddendim-")[1].split("_")[0].replace(".pth", ""))
-				feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
-				n_temporal_layers = int(params.split("ntemporallayers-")[1].split("_")[0].replace(".pth", ""))
-
-				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
-				from lib.models.prithvi_blowup import PrithviSegBlowup
-				model = PrithviSegBlowup(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", c_per_t=c_per_t, hidden_dim=hidden_dim, feed_timeloc=feed_timeloc, n_temporal_layers = n_temporal_layers)
-
-
-			elif "simple" in group:
-
-				with open(f'configs/prithvi_300m.yaml', 'r') as f:
-					prithvi_config = yaml.safe_load(f)
-				prithvi_config["pretrained_cfg"]["img_size"] = 336
-
-				proj_dim = int(params.split("_projdim-")[1].split("_")[0].replace(".pth", ""))
-				feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
-
-				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
-				from lib.models.prithvi_simple import PrithviSegSimple
-				model = PrithviSegSimple(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", proj_dim=proj_dim, feed_timeloc=feed_timeloc)
-
-			else:
+			elif ("prithvi" in group) and ("conv3d" in group):
 
 				with open(f'configs/prithvi_300m.yaml', 'r') as f:
 					prithvi_config = yaml.safe_load(f)
@@ -158,9 +117,15 @@ def main():
 					feed_timeloc = str2bool(params.split("_feed_timeloc-")[1].split("_")[0].replace(".pth", ""))
 				else:
 					feed_timeloc = False
-				val_dataloader.dataset.set_feed_timeloc(feed_timeloc)
-				from lib.models.prithvi import PrithviSeg
-				model=PrithviSeg(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", feed_timeloc=feed_timeloc)
+
+				n_layers = int(params.split("_n_layers-")[1].split("_")[0].replace(".pth", ""))
+				hidden_dim = int(params.split("_hidden_dim-")[1].split("_")[0].replace(".pth", ""))
+
+				from lib.models.prithvi_conv3d import PrithviSegConv3D
+				model=PrithviSegConv3D(prithvi_config["pretrained_cfg"], weights_path, True, n_classes=4, model_size="300m", feed_timeloc=feed_timeloc, hidden_dim=hidden_dim, n_layers=n_layers)
+
+			else: 
+				raise 
 
 			model=model.to(device)
 			model.load_state_dict(torch.load(checkpoint)["model_state_dict"])

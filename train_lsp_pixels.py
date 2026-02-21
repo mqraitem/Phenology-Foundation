@@ -34,7 +34,7 @@ def main():
 
 	# Parse the arguments - only core args needed for this model
 	parser = get_core_parser()
-	parser.add_argument("--loss", type=str, default="mae", choices=["mse", "mae"],
+	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
 	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 	args = parser.parse_args()
 
@@ -58,7 +58,7 @@ def main():
 
 	if args.logging: 
 		wandb.init(
-				project=f"phenology_mae_{args.data_percentage}",
+				project=f"phenology_paper_{args.data_percentage}",
 				group=group_name,
 				config = wandb_config, 
 				name=wandb_name,
@@ -159,14 +159,17 @@ def main():
 				to_log[f"acc_test_{idx}"] = acc_dataset_test[idx]
 			wandb.log(to_log)
 
-
 		print("="*100)
 		to_print = f"Epoch: {epoch}, val_loss: {epoch_loss_val} \n "
 		for idx in range(4):
 			to_print += f"acc_val_{idx}: {acc_dataset_val[idx]} \n "
 
+		for idx in range(4):
+			to_print += f"acc_test_{idx}: {acc_dataset_test[idx]} \n "
+
 		print(to_print)
 		print("="*100)
+
 
 		scheduler.step(epoch_loss_val)
 		acc_dataset_val_mean = np.mean(list(acc_dataset_val.values()))

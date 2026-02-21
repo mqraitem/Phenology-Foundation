@@ -44,11 +44,9 @@ def main():
 	                   help="Whether to use weighted sampler for imbalanced data")
 	parser.add_argument("--feed_timeloc", type=str2bool, default=False,
 	                   help="Whether to feed time/loc coords")
-	parser.add_argument("--hidden_dim", type=int, default=768,
-	                   help="Hidden dimension in temporal fusion Conv2d layers")
-	parser.add_argument("--n_layers", type=int, default=4,
-	                   help="Number of Conv2d layers in temporal fusion head")
-	parser.add_argument("--loss", type=str, default="mae", choices=["mse", "mae"],
+	parser.add_argument("--n_layers", type=int, default=2,
+	                   help="Number of Conv3d layers in temporal fusion head")
+	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
 	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 
 	args = parser.parse_args()
@@ -59,7 +57,6 @@ def main():
 		"load_checkpoint": args.load_checkpoint,
 		"batch_size": args.batch_size,
 		"data_percentage": args.data_percentage,
-		"hidden_dim": args.hidden_dim,
 		"n_layers": args.n_layers,
 		"loss": args.loss,
 	}
@@ -80,7 +77,7 @@ def main():
 
 	if args.logging:
 		wandb.init(
-				project=f"phenology_mae_{args.data_percentage}",
+				project=f"phenology_paper_{args.data_percentage}",
 				group=group_name,
 				config = wandb_config,
 				name=wandb_name,
@@ -125,7 +122,7 @@ def main():
 
 	device = "cuda"
 	weights_path = path_config.get_model_weights(args.model_size) if args.load_checkpoint else None
-	model=PrithviSegConv3D(config["pretrained_cfg"], weights_path, True, n_classes=4, model_size=args.model_size, feed_timeloc=args.feed_timeloc, hidden_dim=args.hidden_dim, n_layers=args.n_layers)
+	model=PrithviSegConv3D(config["pretrained_cfg"], weights_path, True, n_classes=4, model_size=args.model_size, feed_timeloc=args.feed_timeloc, n_layers=args.n_layers)
 	model=model.to(device)
 
 	n_epochs = config["training"]["n_iteration"]

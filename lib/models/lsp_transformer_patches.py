@@ -101,15 +101,19 @@ class TemporalTransformerPerPatch(nn.Module):
 
     # ---- forward ----
     def forward(self, x, processing_images=True, chunk_size=2048):
+
+        x = x.cuda()
+
         if processing_images:
             # x: (B, C, T, H, W)
             assert x.dim() == 5, "processing_images=True expects (B, C, T, H, W)"
-            B, C, T, H, W = x.shape
+
+            # Crop to native resolution to match training patch positions
+            x = x[:, :, :, :330, :330]
+
+            B, C, T, Huse, Wuse = x.shape
             assert C == self.C, f"input_channels mismatch: {C} vs {self.C}"
             assert T == self.seq_len, f"T={T} vs seq_len={self.seq_len}"
-
-            # Only pad if smaller than a single patch
-            _, _, _, Huse, Wuse = x.shape
 
             # compute starts with edge-only overlap
             starts_h = _edge_cover_starts(Huse, self.ph)
@@ -130,10 +134,13 @@ class TemporalTransformerPerPatch(nn.Module):
             logits = self._temporal_patch_encode(patches, chunk_size=chunk_size)  # (B*P, K, ph, pw)
             logits = logits.view(B, P, self.num_classes, self.ph, self.pw)  # (B, P, K, ph, pw)
 
-            # Scatter results back to spatial output
+            # Scatter results back to spatial output, averaging overlapping patches
             out = x.new_zeros((B, self.num_classes, Huse, Wuse))
+            count = x.new_zeros((1, 1, Huse, Wuse))
             for i, (top, left) in enumerate(positions):
-                out[:, :, top:top+self.ph, left:left+self.pw] = logits[:, i]
+                out[:, :, top:top+self.ph, left:left+self.pw] += logits[:, i]
+                count[:, :, top:top+self.ph, left:left+self.pw] += 1
+            out = out / count
 
             return out  # (B, K, H, W)
 

@@ -21,7 +21,7 @@ from tqdm import tqdm
 import path_config
 
 from lib.models.lsp_transformer_patches import TemporalTransformerPerPatch
-from lib.utils import segmentation_loss_pixels, eval_data_loader, get_masks_paper, print_trainable_parameters, save_checkpoint,str2bool
+from lib.utils import segmentation_loss_pixels, segmentation_loss_pixels_mae, eval_data_loader, get_masks_paper, print_trainable_parameters, save_checkpoint,str2bool
 
 from lib.utils import get_data_paths
 from lib.dataloaders.dataloaders_patches import CycleDatasetPatches
@@ -38,6 +38,8 @@ def main():
 	# Add patch-based arguments
 	parser.add_argument("--patch_size", type=int, default=16,
 	                   help="Size of patches for patch-based models")
+	parser.add_argument("--loss", type=str, default="mse", choices=["mse", "mae"],
+	                   help="Loss function: mse (mean squared error) or mae (mean absolute error)")
 
 	args = parser.parse_args()
 
@@ -45,6 +47,7 @@ def main():
 		"learningrate": args.learning_rate,
 		"batch_size": args.batch_size,
 		"data_percentage": args.data_percentage,
+		"loss": args.loss,
 	}
 
 	args.model_size = "300m"
@@ -60,7 +63,7 @@ def main():
 
 	if args.logging: 
 		wandb.init(
-				project=f"phenology_mae_{args.data_percentage}",
+				project=f"phenology_paper_{args.data_percentage}",
 				group=group_name,
 				config = wandb_config, 
 				name=wandb_name,
@@ -88,11 +91,12 @@ def main():
 
 	device = "cuda"
 
+	d_model = 128 * args.patch_size
 	model = TemporalTransformerPerPatch(
 		input_channels=6,
 		seq_len=12,
 		num_classes=4,
-		d_model=128,
+		d_model=d_model,
 		nhead=4,
 		num_layers=3,
 		dropout=0.1,
@@ -109,6 +113,9 @@ def main():
 	optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)
 	scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=5, verbose=True)
 
+	loss_fn = segmentation_loss_pixels_mae if args.loss == "mae" else segmentation_loss_pixels
+	print(f"Using loss function: {args.loss}")
+
 	best_acc_val=100
 	for epoch in range(config["training"]["n_iteration"]):
 
@@ -123,13 +130,12 @@ def main():
 			input = batch_data["image"]
 			mask = batch_data["gt_mask"]	
 
-			input=input.to(device)
 			mask=mask.to(device)
 
 			optimizer.zero_grad()
 			out=model(input, processing_images=False)
 
-			loss=segmentation_loss_pixels(mask,out,device=device)
+			loss=loss_fn(mask,out,device=device)
 			loss_i += loss.item() * input.size(0)  # Multiply by batch size
 
 			loss.backward()
@@ -162,6 +168,9 @@ def main():
 		to_print = f"Epoch: {epoch}, val_loss: {epoch_loss_val} \n "
 		for idx in range(4):
 			to_print += f"acc_val_{idx}: {acc_dataset_val[idx]} \n "
+
+		for idx in range(4):
+			to_print += f"acc_test_{idx}: {acc_dataset_test[idx]} \n "
 
 		print(to_print)
 		print("="*100)

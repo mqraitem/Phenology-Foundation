@@ -9,9 +9,8 @@ import pandas as pd
 import path_config
 
 
-def day_of_year_to_decimal_month(day_of_year):
-	decimal_month = day_of_year / 547
-	return decimal_month
+def normalize_doy(day_of_year):
+	return day_of_year / 547
 
 def compute_or_load_means_stds(
 	data_dir,
@@ -59,8 +58,6 @@ def compute_or_load_means_stds(
 		expanded_mask = np.repeat(dead_pixel_mask[np.newaxis, :, :], time_steps, axis=0)  # (time_steps, H, W)
 		expanded_mask = np.repeat(expanded_mask[np.newaxis, :, :, :], num_bands, axis=0)  # (num_bands, time_steps, H, W)
 
-		# Zero out dead pixels
-		img[expanded_mask] = 0
 		img_flat = img.reshape(num_bands, -1)
 		mask_flat = ~expanded_mask.reshape(num_bands, -1)
 
@@ -74,7 +71,7 @@ def compute_or_load_means_stds(
 				continue
 
 			batch_mean = valid_values.mean()
-			batch_var = valid_values.var(ddof=1)  # sample variance
+			batch_var = valid_values.var(ddof=0)  # population variance
 
 			m = global_count[b]
 			mu1 = global_mean[b]
@@ -457,22 +454,22 @@ def get_data_paths(mode, data_percentage=1.0):
 		timesteps = [f"{year}-{str(x).zfill(2)}" for x in past_months]
 
 		for hls_tile in tqdm(title_hls):
-			temp_ordered = [] 
+			hls_tile_location = hls_tile.split("_")[0]
+			hls_tile_name = hls_tile.split("_")[1]
+			temp_ordered = []
 
 			for timestep in timesteps:
-
-				hls_tile_location = hls_tile.split("_")[0]
-				hls_tile_name = hls_tile.split("_")[1]
-
 				temp_ordered.append(f"{hls_path}/HLS_composite_{timestep}_{hls_tile_location}_{hls_tile_name}.tif")
 
-			temp_lsp = f"{lsp_path}/A{year}/HLS_PhenoCam_A{year}_{hls_tile_location}_{hls_tile_name}_LSP_Date.tif" if f"HLS_PhenoCam_A{year}_{hls_tile_location}_{hls_tile_name}_LSP_Date.tif" in lsp_tiles else None
+			lsp_filename = f"HLS_PhenoCam_A{year}_{hls_tile_location}_{hls_tile_name}_LSP_Date.tif"
+			assert lsp_filename in lsp_tiles, f"GT file not found: {lsp_filename}"
+			temp_lsp = f"{lsp_path}/A{year}/{lsp_filename}"
 
 			hls_tiles_time.append(temp_ordered)
 			lsp_tiles_time.append(temp_lsp)
 			hls_tiles_name.append(f"{year}_{hls_tile}")
 
-	#open training file 
+	#open training file
 	with open(f"{lsp_path}/HP-LSP_train_ids.csv", 'r') as f:
 		train_ids = f.readlines()[0].replace("'", "").split(",")
 		train_ids = [x.strip() for x in train_ids]
@@ -508,20 +505,20 @@ def get_data_paths(mode, data_percentage=1.0):
 	os.makedirs(checkpoint_data, exist_ok=True)
 	with open(f'{checkpoint_data}/data_pths_training.pkl', 'wb') as f:
 		pickle.dump(data_dir_train, f)
-	
+
 	with open(f'{checkpoint_data}/data_pths_validation.pkl', 'wb') as f:
 		pickle.dump(data_dir_val, f)
-	
+
 	with open(f'{checkpoint_data}/data_pths_testing.pkl', 'wb') as f:
 		pickle.dump(data_dir_test, f)
 
-	if mode == 'training':	
+	if mode == 'training':
 		return data_dir_train
 	elif mode == 'validation':
 		return data_dir_val
 	elif mode == "testing":
 		return data_dir_test
-	else: 
+	else:
 		raise ValueError(f"Unknown mode: {mode}. Expected 'training', 'validation', or 'testing'.")
 
 
@@ -559,16 +556,16 @@ def get_ndvi_data_paths(mode, data_percentage=1.0):
 		timesteps = [f"{year}-{str(x).zfill(2)}" for x in past_months]
 
 		for hls_tile in tqdm(title_hls):
-			temp_ordered = [] 
+			hls_tile_location = hls_tile.split("_")[0]
+			hls_tile_name = hls_tile.split("_")[1]
+			temp_ordered = []
 
 			for timestep in timesteps:
-
-				hls_tile_location = hls_tile.split("_")[0]
-				hls_tile_name = hls_tile.split("_")[1]
-
 				temp_ordered.append(f"{hls_path}/HLS_composite_{timestep}_{hls_tile_location}_{hls_tile_name}_NDVI.tif")
 
-			temp_lsp = f"{lsp_path}/A{year}/HLS_PhenoCam_A{year}_{hls_tile_location}_{hls_tile_name}_LSP_Date.tif" if f"HLS_PhenoCam_A{year}_{hls_tile_location}_{hls_tile_name}_LSP_Date.tif" in lsp_tiles else None
+			lsp_filename = f"HLS_PhenoCam_A{year}_{hls_tile_location}_{hls_tile_name}_LSP_Date.tif"
+			assert lsp_filename in lsp_tiles, f"GT file not found: {lsp_filename}"
+			temp_lsp = f"{lsp_path}/A{year}/{lsp_filename}"
 
 			hls_tiles_time.append(temp_ordered)
 			lsp_tiles_time.append(temp_lsp)

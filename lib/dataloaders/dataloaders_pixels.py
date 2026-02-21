@@ -3,8 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from tqdm import tqdm
-from lib.utils import compute_or_load_means_stds, day_of_year_to_decimal_month
+from lib.utils import compute_or_load_means_stds, normalize_doy
 
 # ===== helper functions =====
 
@@ -32,6 +31,8 @@ def load_raster_input(path, target_size=330):
 
 def load_raster_output(path):
 	import rasterio
+	if not os.path.exists(path):
+		raise FileNotFoundError(f"GT raster not found: {path}")
 	with rasterio.open(path) as src:
 		return src.read()
 
@@ -89,7 +90,7 @@ class CycleDatasetPixels(Dataset):
 
 	def process_gt(self,gt):
 		invalid = (gt == 32767) | (gt < 0)
-		gt = day_of_year_to_decimal_month(gt)
+		gt = normalize_doy(gt)
 		gt[invalid] = -1
 
 		return gt.astype(np.float32)
@@ -163,9 +164,7 @@ class CycleDatasetPixels(Dataset):
 	def __getitem__(self, idx):
 		x = torch.from_numpy(self.inputs[idx])   # e.g., (T, C)
 		y = torch.from_numpy(self.targets[idx])  # e.g., (4,)
-		_, h, w, tile = self.meta[idx]
-		h, w, tile = int(h), int(w), str(tile)
 
 		sample = {"image": x, "gt_mask": y}
-		
+
 		return sample

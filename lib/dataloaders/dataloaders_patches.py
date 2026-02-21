@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from lib.utils import compute_or_load_means_stds, day_of_year_to_decimal_month
+from lib.utils import compute_or_load_means_stds, normalize_doy
 
 # ===== helper functions (unchanged) =====
 
@@ -17,6 +17,13 @@ def load_raster(path, crop=None):
 	else:
 		img = np.zeros((6, 330, 330))
 	return img
+
+def load_raster_output(path):
+	import rasterio
+	if not os.path.exists(path):
+		raise FileNotFoundError(f"GT raster not found: {path}")
+	with rasterio.open(path) as src:
+		return src.read()
 
 def load_raster_padded(path, target_size=336):
 	import rasterio
@@ -131,7 +138,7 @@ class CycleDatasetPatches(Dataset):
 
 	def process_gt(self,gt):
 		invalid = (gt == 32767) | (gt < 0)
-		gt = day_of_year_to_decimal_month(gt)
+		gt = normalize_doy(gt)
 		gt[invalid] = -1
 
 		return gt.astype(np.float32)
@@ -157,38 +164,25 @@ class CycleDatasetPatches(Dataset):
 		for img_idx in tqdm(range(len(self.data_dir))):
 			image_paths, gt_path, hls_tile_name = self.data_dir[img_idx]
 
-			# load and stack times: (C, T, H, W)
-			imgs = [load_raster_padded(p, target_size=self.target_size)[:, np.newaxis]
-					for p in image_paths]
+			# load and stack times at native resolution: (C, T, H, W)
+			imgs = [load_raster(p)[:, np.newaxis] for p in image_paths]
 			img = np.concatenate(imgs, axis=1)
 
 			# Create mask for dead pixels (all zeros across all bands and time steps)
-			# Shape: (H, W) - True where pixel is alive (has at least one non-zero value)
 			alive_mask = np.any(img != 0, axis=(0, 1))  # (H, W)
 
 			# normalize per channel, only for alive pixels
 			means1 = self.means.reshape(-1, 1, 1, 1)
 			stds1  = self.stds.reshape(-1, 1, 1, 1)
 			img_normalized = (img - means1) / (stds1 + 1e-6)
-			
-			# Keep dead pixels as zero, apply normalization only to alive pixels
 			img = np.where(alive_mask[np.newaxis, np.newaxis, :, :], img_normalized, 0.0)
 
 			C, T, H, W = img.shape
 			ph, pw = self.patch_h, self.patch_w
-			sh, sw = self.stride_h, self.stride_w  # typically = (ph, pw) for non-overlap
+			sh, sw = self.stride_h, self.stride_w
 
-			# load gt mask (4, H, W)
-			gt_mask_full = load_raster_padded(gt_path)[self.correct_indices, :, :]
-
-			# If image is smaller than a patch, pad minimally so we can extract one patch
-			pad_h = max(0, ph - H)
-			pad_w = max(0, pw - W)
-			if pad_h or pad_w:
-				img = np.pad(img, ((0,0),(0,0),(0,pad_h),(0,pad_w)), mode="constant", constant_values=0)
-				gt_mask_full = np.pad(gt_mask_full, ((0,0),(0,pad_h),(0,pad_w)),
-									mode="constant", constant_values=np.nan)
-				H += pad_h; W += pad_w  # updated dims
+			# load gt mask at native resolution (4, H, W)
+			gt_mask_full = load_raster_output(gt_path)[self.correct_indices, :, :]
 
 			# Compute starts: non-overlap except last patch aligns to the edge if needed
 			starts_h = self._edge_cover_starts(H, ph, sh)
@@ -199,11 +193,11 @@ class CycleDatasetPatches(Dataset):
 					img_patch = img[:, :, top_h:top_h+ph, top_w:top_w+pw]      # (C, T, ph, pw)
 					gt_patch  = gt_mask_full[:, top_h:top_h+ph, top_w:top_w+pw] # (4, ph, pw)
 
-					# skip patches that are entirely invalid
-					if np.isnan(gt_patch).all():
-						continue
-
 					gt_patch_fixed = self.process_gt(gt_patch)         # (4, ph, pw)
+
+					# skip patches that are entirely invalid (all -1 after processing)
+					if (gt_patch_fixed == -1).all():
+						continue
 
 					# (C, T, ph, pw) -> (T, C, ph, pw)
 					img_patch_tc = np.transpose(img_patch, (1, 0, 2, 3)).astype(np.float32)

@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 import geopandas as gpd
 import pandas as pd
 import path_config
-from lib.utils import compute_or_load_means_stds, day_of_year_to_decimal_month
+from lib.utils import compute_or_load_means_stds, normalize_doy
 from datetime import datetime
 
 
@@ -52,6 +52,8 @@ def load_raster_input(path, target_size=336):
 	return padded_img
 
 def load_raster_output(path):
+		if not os.path.exists(path):
+			raise FileNotFoundError(f"GT raster not found: {path}")
 		with rasterio.open(path) as src:
 			img = src.read()
 
@@ -98,7 +100,7 @@ class CycleDataset(Dataset):
 		geo_gdf = geo_gdf.rename(columns={"Site_ID": "SiteID"})
 		geo_gdf["HLStile"] = "T" + geo_gdf["name"]
 		geo_gdf = geo_gdf.set_crs("EPSG:4326")
-		geo_gdf["centroid"] = geo_gdf.geometry.centroid
+		geo_gdf["centroid"] = geo_gdf.geometry.representative_point()
 
 		self.all_locations = {} 
 		self.all_times = {}
@@ -148,7 +150,7 @@ class CycleDataset(Dataset):
 		geo_gdf = geo_gdf.rename(columns={"Site_ID": "SiteID"})
 		geo_gdf["HLStile"] = "T" + geo_gdf["name"]
 		geo_gdf = geo_gdf.set_crs("EPSG:4326").to_crs(epsg=3857)
-		geo_gdf["centroid"] = geo_gdf.geometry.centroid
+		geo_gdf["centroid"] = geo_gdf.geometry.representative_point()
 
 		# --- Load ecoregion polygons ---
 		eco_gdf = gpd.read_file(eco_path).to_crs(geo_gdf.crs)
@@ -203,7 +205,7 @@ class CycleDataset(Dataset):
 		Normalize a (bands, time, H, W) image using per-band means/stds (across all time steps).
 		`image` is (bands, time, H, W)
 		Pixels where all bands/time steps are zero are left as zero (not normalized).
-		Returns a torch tensor with shape (1, bands, time, H, W)
+		Returns a torch tensor with shape (bands, time, H, W)
 		"""
 		number_of_channels = image.shape[0]  # bands
 		number_of_time_steps = image.shape[1]
@@ -244,7 +246,7 @@ class CycleDataset(Dataset):
 
 	def process_gt(self,gt):
 		invalid = (gt == 32767) | (gt < 0)
-		gt = day_of_year_to_decimal_month(gt)
+		gt = normalize_doy(gt)
 		gt[invalid] = -1
 
 		return gt.astype(np.float32)
